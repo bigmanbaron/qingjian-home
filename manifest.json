@@ -1,0 +1,9 @@
+{
+  "id": "qingjian-home",
+  "name": "清简首页",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "一个简洁的 Obsidian 自用首页：待办、每日瞬间、提醒、快捷入口和最近笔记。",
+  "author": "bigmanbaron",
+  "isDesktopOnly": false
+}

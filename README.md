@@ -1,0 +1,27 @@
+# 清简首页
+
+一个面向个人使用的轻量 Obsidian 首页插件。
+
+## 功能
+
+- 自动扫描库内现有 Markdown 待办并汇总；操作会回写原笔记，不迁移内容
+- 仅“急 / 缓”两级待办，优先级直接用加粗彩色文字呈现；旧待办默认归为“缓”
+- 每日瞬间快速记录，并手动归档到指定 Markdown 笔记
+- 定时提醒，支持每天、每周重复和稍后 10 分钟
+- 新建笔记、今日日记、搜索、命令面板快捷入口
+- 当月日历和最近笔记
+
+## 本地安装
+
+1. 执行 `npm install` 和 `npm run build`
+2. 将 `manifest.json`、`main.js`、`styles.css` 复制到库内 `.obsidian/plugins/qingjian-home/`
+3. 在 Obsidian 的社区插件设置中启用“清简首页”
+
+## 使用 BRAT 安装
+
+1. 在 Obsidian 社区插件中安装并启用 BRAT
+2. 在 BRAT 中选择 **Add a beta plugin**
+3. 输入本仓库地址，选择最新版并安装
+4. 回到社区插件列表启用“清简首页”
+
+提醒依赖 Obsidian 正在运行；移动端系统关闭 Obsidian 后无法保证后台提醒。
