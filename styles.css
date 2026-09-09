@@ -63,7 +63,10 @@
 .qj-list-item.is-complete .qj-item-text { text-decoration: line-through; color: var(--text-muted); }
 .qj-task-body { min-width: 0; }
 .qj-task-link { display: block; width: 100%; padding: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--text-normal); text-align: left; white-space: normal; }
-.qj-task-path { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qj-task-date { margin-top: 2px; }
+.qj-completed-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); }
+.qj-completed-item { grid-template-columns: auto 1fr; }
+.qj-completed-check { color: var(--text-success); font-weight: 800; }
 .qj-icon-button { border: 0 !important; background: transparent !important; box-shadow: none !important; font-size: 1.2rem; color: var(--text-muted); }
 .qj-empty { padding: 18px 4px 8px; text-align: center; color: var(--text-faint); }
 
@@ -79,12 +82,9 @@
 
 .qj-quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .qj-quick-grid button { min-height: 42px; }
-.qj-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
-.qj-calendar > * { aspect-ratio: 1; display: grid; place-items: center; padding: 0; }
-.qj-calendar button { border: 0; background: transparent; box-shadow: none; border-radius: 50%; }
-.qj-calendar button:hover { background: var(--background-modifier-hover); }
-.qj-calendar button.is-today { color: var(--text-on-accent); background: var(--interactive-accent); font-weight: 700; }
-.qj-weekday { color: var(--text-muted); font-size: .75rem; }
+.qj-quality-title { width: 100%; margin-top: 8px; }
+.qj-quality-input { width: 100%; min-height: 180px; margin-top: 8px; resize: vertical; }
+.qj-quality-status { min-height: 1.2em; margin-top: 4px; }
 .qj-recent { display: grid; gap: 3px; }
 .qj-recent button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px; border: 0; background: transparent; box-shadow: none; text-align: left; }
 .qj-recent button:hover { background: var(--background-modifier-hover); }
