@@ -33,7 +33,9 @@ var DEFAULT_DATA = {
     openOnStartup: true,
     defaultArchivePath: "\u6BCF\u65E5\u77AC\u95F4.md",
     dailyNotesFolder: "\u65E5\u8BB0",
-    taskInboxPath: "\u5F85\u529E\u6536\u96C6.md"
+    taskInboxPath: "\u5F85\u529E\u6536\u96C6.md",
+    completedTasksPath: "10_\u5DF2\u5B8C\u6210\u5F85\u529E/\u5DF2\u5B8C\u6210\u5F85\u529E.md",
+    qualityContentFolder: "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6"
   }
 };
 function uid() {
@@ -64,10 +66,14 @@ var NotePicker = class extends import_obsidian.FuzzySuggestModal {
     this.setPlaceholder("\u9009\u62E9\u5F52\u6863\u7B14\u8BB0\u2026");
   }
   getItems() {
-    return this.app.vault.getMarkdownFiles();
+    return this.app.vault.getAllLoadedFiles().filter((file) => file.path && (file instanceof import_obsidian.TFolder || file instanceof import_obsidian.TFile && file.extension === "md")).sort((a, b) => {
+      if (a instanceof import_obsidian.TFolder && b instanceof import_obsidian.TFile) return -1;
+      if (a instanceof import_obsidian.TFile && b instanceof import_obsidian.TFolder) return 1;
+      return a.path.localeCompare(b.path, "zh-CN");
+    });
   }
   getItemText(file) {
-    return file.path;
+    return `${file instanceof import_obsidian.TFolder ? "\u6587\u4EF6\u5939" : "\u7B14\u8BB0"} \xB7 ${file.path}`;
   }
   onChooseItem(file) {
     this.onChoose(file);
@@ -77,6 +83,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.taskFilter = "all";
+    this.showCompletedTasks = false;
     this.plugin = plugin;
   }
   getViewType() {
@@ -104,7 +111,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       { column: main, render: () => this.renderMoments(main) },
       { column: side, render: () => this.renderReminders(side) },
       { column: side, render: () => this.renderQuickActions(side) },
-      { column: side, render: () => this.renderCalendar(side) },
+      { column: side, render: () => this.renderQualityContent(side) },
       { column: side, render: () => this.renderRecent(side) }
     ];
     modules.forEach((module2) => module2.render());
@@ -170,6 +177,13 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       });
     });
     const list = card.createDiv({ cls: "qj-list" });
+    const completedButton = filters.createEl("button", {
+      text: this.showCompletedTasks ? "\u6536\u8D77\u5DF2\u5B8C\u6210" : `\u67E5\u770B\u5DF2\u5B8C\u6210\uFF08${this.plugin.completedTasks.length}\uFF09`
+    });
+    completedButton.addEventListener("click", () => {
+      this.showCompletedTasks = !this.showCompletedTasks;
+      this.render();
+    });
     const tasks = this.plugin.vaultTasks.filter((task) => this.taskFilter === "all" || task.priority === this.taskFilter);
     if (!tasks.length) this.emptyState(list, "\u8FD9\u91CC\u5F88\u6E05\u723D\uFF0C\u6682\u65F6\u6CA1\u6709\u5F85\u529E");
     tasks.forEach((task) => {
@@ -177,7 +191,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.checked = task.completed;
       checkbox.addEventListener("change", async () => {
-        await this.plugin.updateTask(task, { completed: checkbox.checked });
+        if (checkbox.checked) await this.plugin.completeTask(task);
       });
       const priority = row.createEl("button", {
         text: task.priority === "urgent" ? "\u6025" : "\u7F13",
@@ -190,13 +204,24 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       const taskText = body.createEl("button", { text: task.text, cls: "qj-item-text qj-task-link" });
       taskText.setAttr("title", `\u6253\u5F00\u6765\u6E90\uFF1A${task.path}`);
       taskText.addEventListener("click", () => void this.plugin.openTaskSource(task));
-      body.createDiv({ text: task.path, cls: "qj-muted qj-task-path" });
+      body.createDiv({ text: `\u521B\u5EFA ${task.createdDate}`, cls: "qj-muted qj-task-date" });
       const remove = row.createEl("button", { text: "\xD7", cls: "qj-icon-button" });
       remove.setAttr("aria-label", "\u5220\u9664\u5F85\u529E");
       remove.addEventListener("click", async () => {
         await this.plugin.deleteTask(task);
       });
     });
+    if (this.showCompletedTasks) {
+      const completedList = card.createDiv({ cls: "qj-completed-list" });
+      if (!this.plugin.completedTasks.length) this.emptyState(completedList, "\u8FD8\u6CA1\u6709\u5DF2\u5B8C\u6210\u5F85\u529E");
+      this.plugin.completedTasks.forEach((task) => {
+        const row = completedList.createDiv({ cls: "qj-list-item is-complete qj-completed-item" });
+        row.createSpan({ text: "\u2713", cls: "qj-completed-check" });
+        const body = row.createDiv({ cls: "qj-task-body" });
+        body.createDiv({ text: task.text, cls: "qj-item-text" });
+        body.createDiv({ text: `\u521B\u5EFA ${task.createdDate}\u3000\u5B8C\u6210 ${task.completedDate}`, cls: "qj-muted qj-task-date" });
+      });
+    }
   }
   renderMoments(parent) {
     const card = this.card(parent, "\u6BCF\u65E5\u77AC\u95F4", "\u5148\u8BB0\u4E0B\uFF0C\u518D\u5F52\u6863");
@@ -210,7 +235,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const choose = controls.createEl("button", { text: "\u9009\u62E9" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
-        pathInput.value = file.path;
+        pathInput.value = file instanceof import_obsidian.TFolder ? (0, import_obsidian.normalizePath)(`${file.path}/\u6BCF\u65E5\u77AC\u95F4.md`) : file.path;
       }).open();
     });
     const save = controls.createEl("button", { text: "\u8BB0\u4E0B", cls: "qj-primary" });
@@ -299,21 +324,50 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       button.addEventListener("click", action);
     });
   }
-  renderCalendar(parent) {
-    const now = /* @__PURE__ */ new Date();
-    const card = this.card(parent, `${now.getFullYear()}\u5E74${now.getMonth() + 1}\u6708`);
-    const calendar = card.createDiv({ cls: "qj-calendar" });
-    ["\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D", "\u65E5"].forEach((day) => calendar.createSpan({ text: day, cls: "qj-weekday" }));
-    const first = new Date(now.getFullYear(), now.getMonth(), 1);
-    const offset = (first.getDay() + 6) % 7;
-    for (let index = 0; index < offset; index += 1) calendar.createSpan();
-    const total = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    for (let day = 1; day <= total; day += 1) {
-      const date = new Date(now.getFullYear(), now.getMonth(), day);
-      const button = calendar.createEl("button", { text: String(day) });
-      button.toggleClass("is-today", day === now.getDate());
-      button.addEventListener("click", () => void this.plugin.openDailyNote(date));
-    }
+  renderQualityContent(parent) {
+    const card = this.card(parent, "\u4F18\u8D28\u5185\u5BB9\u6536\u96C6", "\u94FE\u63A5\u63D0\u53D6\uFF0C\u6216\u76F4\u63A5\u7C98\u8D34");
+    const linkRow = card.createDiv({ cls: "qj-entry-row" });
+    const linkInput = linkRow.createEl("input", { type: "url", placeholder: "\u7C98\u8D34\u6587\u7AE0\u94FE\u63A5\u2026" });
+    const extract = linkRow.createEl("button", { text: "\u63D0\u53D6", cls: "qj-primary" });
+    const titleInput = card.createEl("input", { type: "text", placeholder: "\u5185\u5BB9\u6807\u9898\u2026", cls: "qj-quality-title" });
+    const contentInput = card.createEl("textarea", {
+      placeholder: "\u63D0\u53D6\u7ED3\u679C\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\uFF1B\u6CA1\u6709\u94FE\u63A5\u65F6\u53EF\u76F4\u63A5\u7C98\u8D34\u5185\u5BB9\u2026",
+      cls: "qj-quality-input"
+    });
+    const status = card.createDiv({ cls: "qj-muted qj-quality-status" });
+    extract.addEventListener("click", async () => {
+      const url = linkInput.value.trim();
+      if (!url) {
+        new import_obsidian.Notice("\u8BF7\u5148\u8F93\u5165\u94FE\u63A5");
+        return;
+      }
+      extract.disabled = true;
+      extract.setText("\u63D0\u53D6\u4E2D\u2026");
+      status.setText("\u6B63\u5728\u8BFB\u53D6\u7F51\u9875\u5185\u5BB9");
+      try {
+        const result = await this.plugin.extractQualityContent(url);
+        titleInput.value = result.title;
+        contentInput.value = result.content;
+        status.setText("\u63D0\u53D6\u5B8C\u6210\uFF0C\u53EF\u7EE7\u7EED\u7F16\u8F91\u540E\u4FDD\u5B58");
+      } catch (error) {
+        console.error("\u6E05\u7B80\u9996\u9875\u63D0\u53D6\u5185\u5BB9\u5931\u8D25", error);
+        status.setText("\u63D0\u53D6\u5931\u8D25\uFF0C\u53EF\u76F4\u63A5\u5728\u6587\u672C\u6846\u7C98\u8D34\u5185\u5BB9");
+        new import_obsidian.Notice("\u7F51\u9875\u63D0\u53D6\u5931\u8D25\uFF0C\u53EF\u80FD\u9700\u8981\u767B\u5F55\u6216\u5C5E\u4E8E\u52A8\u6001\u9875\u9762");
+      } finally {
+        extract.disabled = false;
+        extract.setText("\u63D0\u53D6");
+      }
+    });
+    const actions = card.createDiv({ cls: "qj-inline-actions" });
+    const save = actions.createEl("button", { text: "\u4FDD\u5B58\u4E3A\u7B14\u8BB0", cls: "qj-primary" });
+    save.addEventListener("click", async () => {
+      const content = contentInput.value.trim();
+      if (!content) {
+        new import_obsidian.Notice("\u8BF7\u5148\u63D0\u53D6\u6216\u7C98\u8D34\u5185\u5BB9");
+        return;
+      }
+      await this.plugin.saveQualityContent(titleInput.value.trim(), content);
+    });
   }
   renderRecent(parent) {
     const card = this.card(parent, "\u6700\u8FD1\u7B14\u8BB0");
@@ -352,8 +406,16 @@ var QingjianSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.data.settings.taskInboxPath = value.trim() || "\u5F85\u529E\u6536\u96C6.md";
       await this.plugin.persist();
     }));
+    new import_obsidian.Setting(containerEl).setName("\u5DF2\u5B8C\u6210\u5F85\u529E\u7B14\u8BB0").setDesc("\u5B8C\u6210\u7684\u5F85\u529E\u4F1A\u4ECE\u539F\u7B14\u8BB0\u79FB\u51FA\uFF0C\u5E76\u5F52\u6863\u5230\u8FD9\u91CC\u3002").addText((text) => text.setValue(this.plugin.data.settings.completedTasksPath).onChange(async (value) => {
+      this.plugin.data.settings.completedTasksPath = value.trim() || "10_\u5DF2\u5B8C\u6210\u5F85\u529E/\u5DF2\u5B8C\u6210\u5F85\u529E.md";
+      await this.plugin.persist();
+    }));
     new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u77AC\u95F4\u5F52\u6863\u7B14\u8BB0").setDesc("\u4F8B\u5982\uFF1A\u6BCF\u65E5\u77AC\u95F4.md \u6216 \u8BB0\u5F55/\u6BCF\u65E5\u77AC\u95F4.md").addText((text) => text.setValue(this.plugin.data.settings.defaultArchivePath).onChange(async (value) => {
       this.plugin.data.settings.defaultArchivePath = value.trim() || "\u6BCF\u65E5\u77AC\u95F4.md";
+      await this.plugin.persist();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u4F18\u8D28\u5185\u5BB9\u6587\u4EF6\u5939").setDesc("\u63D0\u53D6\u6216\u7C98\u8D34\u7684\u4F18\u8D28\u5185\u5BB9\u4F1A\u4FDD\u5B58\u5230\u8FD9\u91CC\u3002").addText((text) => text.setValue(this.plugin.data.settings.qualityContentFolder).onChange(async (value) => {
+      this.plugin.data.settings.qualityContentFolder = value.trim() || "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6";
       await this.plugin.persist();
     }));
     new import_obsidian.Setting(containerEl).setName("\u65E5\u8BB0\u6587\u4EF6\u5939").setDesc("\u65E5\u8BB0\u6587\u4EF6\u540D\u56FA\u5B9A\u4E3A YYYY-MM-DD.md\uFF1B\u7559\u7A7A\u5219\u4FDD\u5B58\u5728\u5E93\u6839\u76EE\u5F55\u3002").addText((text) => text.setValue(this.plugin.data.settings.dailyNotesFolder).onChange(async (value) => {
@@ -367,6 +429,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     super(...arguments);
     this.data = structuredClone(DEFAULT_DATA);
     this.vaultTasks = [];
+    this.completedTasks = [];
   }
   async onload() {
     var _a, _b, _c, _d, _e;
@@ -410,20 +473,32 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   async addTask(text, priority) {
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
     const file = await this.getOrCreateFile(path, "# \u5F85\u529E\u6536\u96C6\n");
+    const createdDate = dateKey(/* @__PURE__ */ new Date());
     await this.app.vault.append(file, `
-- [ ] ${text.replace(/\n/g, " ")} <!-- qj:${priority} -->`);
+- [ ] ${text.replace(/\n/g, " ")}\uFF08\u521B\u5EFA\uFF1A${createdDate}\uFF09 <!-- qj:${priority} created:${createdDate} -->`);
     await this.scanVaultTasks();
   }
   async updateTask(task, changes) {
     await this.changeTaskLine(task, (line) => {
       let next = line;
-      if (changes.completed !== void 0) next = next.replace(/\[[ xX]\]/, changes.completed ? "[x]" : "[ ]");
       if (changes.priority) {
-        next = next.replace(/\s*<!--\s*qj:(?:urgent|later)\s*-->\s*$/, "");
-        next += ` <!-- qj:${changes.priority} -->`;
+        next = next.replace(/\s*<!--\s*qj:(?:urgent|later)(?:\s+created:\d{4}-\d{2}-\d{2})?\s*-->\s*$/, "");
+        next += ` <!-- qj:${changes.priority} created:${task.createdDate} -->`;
       }
       return next;
     });
+  }
+  async completeTask(task) {
+    const completedDate = dateKey(/* @__PURE__ */ new Date());
+    const path = this.asMarkdownPath(this.data.settings.completedTasksPath);
+    const file = await this.getOrCreateFile(path, "# \u5DF2\u5B8C\u6210\u5F85\u529E\n");
+    await this.app.vault.append(
+      file,
+      `
+- [x] ${task.text.replace(/\n/g, " ")}\uFF08\u521B\u5EFA\uFF1A${task.createdDate}\uFF1B\u5B8C\u6210\uFF1A${completedDate}\uFF09`
+    );
+    await this.changeTaskLine(task, () => null);
+    new import_obsidian.Notice(`\u5DF2\u5F52\u6863\u5230 ${path}`);
   }
   async deleteTask(task) {
     await this.changeTaskLine(task, () => null);
@@ -444,6 +519,65 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new import_obsidian.Notice(`\u5DF2\u5F52\u6863\u5230 ${path}`);
+  }
+  async extractQualityContent(rawUrl) {
+    var _a, _b;
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u534F\u8BAE");
+    const response = await (0, import_obsidian.requestUrl)({ url: url.toString(), method: "GET" });
+    const document = new DOMParser().parseFromString(response.text, "text/html");
+    document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
+    document.querySelectorAll("img").forEach((image) => {
+      const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
+      if (!source) {
+        image.remove();
+        return;
+      }
+      try {
+        image.setAttribute("src", new URL(source, url).toString());
+      } catch (e) {
+        image.remove();
+      }
+      image.removeAttribute("srcset");
+      image.removeAttribute("data-src");
+    });
+    document.querySelectorAll("a[href]").forEach((link) => {
+      const href = link.getAttribute("href");
+      if (!href) return;
+      try {
+        link.setAttribute("href", new URL(href, url).toString());
+      } catch (e) {
+        link.removeAttribute("href");
+      }
+    });
+    const article = document.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document.body;
+    if (!article) throw new Error("\u7F51\u9875\u6CA1\u6709\u53EF\u63D0\u53D6\u5185\u5BB9");
+    const title = ((_b = (_a = document.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
+    const markdown = (0, import_obsidian.htmlToMarkdown)(article).replace(/\n{3,}/g, "\n\n").trim();
+    if (!markdown) throw new Error("\u7F51\u9875\u6B63\u6587\u4E3A\u7A7A");
+    return {
+      title,
+      content: `> \u6765\u6E90\uFF1A[${url.hostname}](${url.toString()})
+
+${markdown}`
+    };
+  }
+  async saveQualityContent(rawTitle, content) {
+    const now = /* @__PURE__ */ new Date();
+    const title = rawTitle || `\u4F18\u8D28\u5185\u5BB9-${dateKey(now)}`;
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || `\u4F18\u8D28\u5185\u5BB9-${dateKey(now)}`;
+    const folder = (0, import_obsidian.normalizePath)(this.data.settings.qualityContentFolder.trim() || "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6");
+    let path = this.asMarkdownPath(`${folder}/${safeTitle}`);
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      const time = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${folder}/${safeTitle}-${time}`);
+    }
+    const file = await this.getOrCreateFile(path, `# ${title}
+
+${content}
+`);
+    new import_obsidian.Notice(`\u5DF2\u4FDD\u5B58\u5230 ${path}`);
+    await this.app.workspace.getLeaf(false).openFile(file);
   }
   async openDailyNote(date) {
     const folder = this.data.settings.dailyNotesFolder.trim();
@@ -488,8 +622,17 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   }
   async scanVaultTasks() {
     const found = [];
+    const completed = [];
+    const completedPath = this.asMarkdownPath(this.data.settings.completedTasksPath);
     for (const file of this.app.vault.getMarkdownFiles()) {
       const content = await this.app.vault.cachedRead(file);
+      if (file.path === completedPath) {
+        content.split("\n").forEach((rawLine) => {
+          const match = rawLine.match(/^\s*[-*+]\s+\[[xX]\]\s+(.+?)（创建：(\d{4}-\d{2}-\d{2})；完成：(\d{4}-\d{2}-\d{2})）\s*$/);
+          if (match) completed.push({ text: match[1].trim(), createdDate: match[2], completedDate: match[3] });
+        });
+        continue;
+      }
       let insideCodeFence = false;
       content.split("\n").forEach((rawLine, lineNumber) => {
         if (/^\s*(```|~~~)/.test(rawLine)) {
@@ -499,31 +642,40 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
         if (insideCodeFence) return;
         const match = rawLine.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
         if (!match) return;
-        const priority = /<!--\s*qj:urgent\s*-->/.test(rawLine) ? "urgent" : "later";
-        const text = match[2].replace(/\s*<!--\s*qj:(?:urgent|later)\s*-->\s*$/, "").trim();
+        if (match[1].toLowerCase() === "x") return;
+        const metadata = rawLine.match(/<!--\s*qj:(urgent|later)(?:\s+created:(\d{4}-\d{2}-\d{2}))?\s*-->/);
+        const priority = (metadata == null ? void 0 : metadata[1]) === "urgent" ? "urgent" : "later";
+        const withoutMetadata = match[2].replace(/\s*<!--\s*qj:(?:urgent|later)(?:\s+created:\d{4}-\d{2}-\d{2})?\s*-->\s*$/, "").trim();
+        const visibleDate = withoutMetadata.match(/（创建：(\d{4}-\d{2}-\d{2})）\s*$/);
+        const createdDate = (metadata == null ? void 0 : metadata[2]) || (visibleDate == null ? void 0 : visibleDate[1]) || dateKey(new Date(file.stat.ctime));
+        const text = withoutMetadata.replace(/\s*（创建：\d{4}-\d{2}-\d{2}）\s*$/, "").trim();
         found.push({
           id: `${file.path}:${lineNumber}`,
           text,
           priority,
-          completed: match[1].toLowerCase() === "x",
+          completed: false,
           path: file.path,
           lineNumber,
-          rawLine
+          rawLine,
+          createdDate
         });
       });
     }
     this.vaultTasks = found.sort((a, b) => {
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
       if (a.priority !== b.priority) return a.priority === "urgent" ? -1 : 1;
       return a.path.localeCompare(b.path, "zh-CN");
     });
+    this.completedTasks = completed.sort((a, b) => b.completedDate.localeCompare(a.completedDate));
     this.refreshViews();
   }
   async migrateLegacyTasks() {
     if (!this.data.tasks.length) return;
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
     const file = await this.getOrCreateFile(path, "# \u5F85\u529E\u6536\u96C6\n");
-    const lines = this.data.tasks.map((task) => `- [${task.completed ? "x" : " "}] ${task.text.replace(/\n/g, " ")} <!-- qj:${task.priority} -->`);
+    const lines = this.data.tasks.map((task) => {
+      const createdDate = dateKey(new Date(task.createdAt));
+      return `- [${task.completed ? "x" : " "}] ${task.text.replace(/\n/g, " ")}\uFF08\u521B\u5EFA\uFF1A${createdDate}\uFF09 <!-- qj:${task.priority} created:${createdDate} -->`;
+    });
     await this.app.vault.append(file, `
 ${lines.join("\n")}
 `);

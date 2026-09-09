@@ -1,14 +1,18 @@
 import {
   App,
   FuzzySuggestModal,
+  htmlToMarkdown,
   ItemView,
   Notice,
   Plugin,
   PluginSettingTab,
   Setting,
+  TAbstractFile,
   TFile,
+  TFolder,
   WorkspaceLeaf,
-  normalizePath
+  normalizePath,
+  requestUrl
 } from "obsidian";
 
 const VIEW_TYPE = "qingjian-home-view";
@@ -32,6 +36,13 @@ interface VaultTask {
   path: string;
   lineNumber: number;
   rawLine: string;
+  createdDate: string;
+}
+
+interface CompletedTask {
+  text: string;
+  createdDate: string;
+  completedDate: string;
 }
 
 interface Moment {
@@ -55,6 +66,8 @@ interface HomeSettings {
   defaultArchivePath: string;
   dailyNotesFolder: string;
   taskInboxPath: string;
+  completedTasksPath: string;
+  qualityContentFolder: string;
 }
 
 interface HomeData {
@@ -74,7 +87,9 @@ const DEFAULT_DATA: HomeData = {
     openOnStartup: true,
     defaultArchivePath: "每日瞬间.md",
     dailyNotesFolder: "日记",
-    taskInboxPath: "待办收集.md"
+    taskInboxPath: "待办收集.md",
+    completedTasksPath: "10_已完成待办/已完成待办.md",
+    qualityContentFolder: "11_优质内容收集"
   }
 };
 
@@ -103,24 +118,30 @@ function toDateTimeLocal(date: Date): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
-class NotePicker extends FuzzySuggestModal<TFile> {
-  private onChoose: (file: TFile) => void;
+class NotePicker extends FuzzySuggestModal<TAbstractFile> {
+  private onChoose: (file: TAbstractFile) => void;
 
-  constructor(app: App, onChoose: (file: TFile) => void) {
+  constructor(app: App, onChoose: (file: TAbstractFile) => void) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("选择归档笔记…");
   }
 
-  getItems(): TFile[] {
-    return this.app.vault.getMarkdownFiles();
+  getItems(): TAbstractFile[] {
+    return this.app.vault.getAllLoadedFiles()
+      .filter((file) => file.path && (file instanceof TFolder || (file instanceof TFile && file.extension === "md")))
+      .sort((a, b) => {
+        if (a instanceof TFolder && b instanceof TFile) return -1;
+        if (a instanceof TFile && b instanceof TFolder) return 1;
+        return a.path.localeCompare(b.path, "zh-CN");
+      });
   }
 
-  getItemText(file: TFile): string {
-    return file.path;
+  getItemText(file: TAbstractFile): string {
+    return `${file instanceof TFolder ? "文件夹" : "笔记"} · ${file.path}`;
   }
 
-  onChooseItem(file: TFile): void {
+  onChooseItem(file: TAbstractFile): void {
     this.onChoose(file);
   }
 }
@@ -128,6 +149,7 @@ class NotePicker extends FuzzySuggestModal<TFile> {
 class QingjianHomeView extends ItemView {
   plugin: QingjianHomePlugin;
   private taskFilter: "all" | Priority = "all";
+  private showCompletedTasks = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: QingjianHomePlugin) {
     super(leaf);
@@ -165,7 +187,7 @@ class QingjianHomeView extends ItemView {
       { column: main, render: () => this.renderMoments(main) },
       { column: side, render: () => this.renderReminders(side) },
       { column: side, render: () => this.renderQuickActions(side) },
-      { column: side, render: () => this.renderCalendar(side) },
+      { column: side, render: () => this.renderQualityContent(side) },
       { column: side, render: () => this.renderRecent(side) }
     ];
     modules.forEach((module) => module.render());
@@ -236,6 +258,14 @@ class QingjianHomeView extends ItemView {
     });
 
     const list = card.createDiv({ cls: "qj-list" });
+    const completedButton = filters.createEl("button", {
+      text: this.showCompletedTasks ? "收起已完成" : `查看已完成（${this.plugin.completedTasks.length}）`
+    });
+    completedButton.addEventListener("click", () => {
+      this.showCompletedTasks = !this.showCompletedTasks;
+      this.render();
+    });
+
     const tasks = this.plugin.vaultTasks.filter((task) => this.taskFilter === "all" || task.priority === this.taskFilter);
     if (!tasks.length) this.emptyState(list, "这里很清爽，暂时没有待办");
     tasks.forEach((task) => {
@@ -243,7 +273,7 @@ class QingjianHomeView extends ItemView {
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.checked = task.completed;
       checkbox.addEventListener("change", async () => {
-        await this.plugin.updateTask(task, { completed: checkbox.checked });
+        if (checkbox.checked) await this.plugin.completeTask(task);
       });
       const priority = row.createEl("button", {
         text: task.priority === "urgent" ? "急" : "缓",
@@ -256,13 +286,25 @@ class QingjianHomeView extends ItemView {
       const taskText = body.createEl("button", { text: task.text, cls: "qj-item-text qj-task-link" });
       taskText.setAttr("title", `打开来源：${task.path}`);
       taskText.addEventListener("click", () => void this.plugin.openTaskSource(task));
-      body.createDiv({ text: task.path, cls: "qj-muted qj-task-path" });
+      body.createDiv({ text: `创建 ${task.createdDate}`, cls: "qj-muted qj-task-date" });
       const remove = row.createEl("button", { text: "×", cls: "qj-icon-button" });
       remove.setAttr("aria-label", "删除待办");
       remove.addEventListener("click", async () => {
         await this.plugin.deleteTask(task);
       });
     });
+
+    if (this.showCompletedTasks) {
+      const completedList = card.createDiv({ cls: "qj-completed-list" });
+      if (!this.plugin.completedTasks.length) this.emptyState(completedList, "还没有已完成待办");
+      this.plugin.completedTasks.forEach((task) => {
+        const row = completedList.createDiv({ cls: "qj-list-item is-complete qj-completed-item" });
+        row.createSpan({ text: "✓", cls: "qj-completed-check" });
+        const body = row.createDiv({ cls: "qj-task-body" });
+        body.createDiv({ text: task.text, cls: "qj-item-text" });
+        body.createDiv({ text: `创建 ${task.createdDate}　完成 ${task.completedDate}`, cls: "qj-muted qj-task-date" });
+      });
+    }
   }
 
   private renderMoments(parent: HTMLElement): void {
@@ -276,7 +318,9 @@ class QingjianHomeView extends ItemView {
     });
     const choose = controls.createEl("button", { text: "选择" });
     choose.addEventListener("click", () => {
-      new NotePicker(this.app, (file) => { pathInput.value = file.path; }).open();
+      new NotePicker(this.app, (file) => {
+        pathInput.value = file instanceof TFolder ? normalizePath(`${file.path}/每日瞬间.md`) : file.path;
+      }).open();
     });
     const save = controls.createEl("button", { text: "记下", cls: "qj-primary" });
     save.addEventListener("click", async () => {
@@ -369,21 +413,52 @@ class QingjianHomeView extends ItemView {
     });
   }
 
-  private renderCalendar(parent: HTMLElement): void {
-    const now = new Date();
-    const card = this.card(parent, `${now.getFullYear()}年${now.getMonth() + 1}月`);
-    const calendar = card.createDiv({ cls: "qj-calendar" });
-    ["一", "二", "三", "四", "五", "六", "日"].forEach((day) => calendar.createSpan({ text: day, cls: "qj-weekday" }));
-    const first = new Date(now.getFullYear(), now.getMonth(), 1);
-    const offset = (first.getDay() + 6) % 7;
-    for (let index = 0; index < offset; index += 1) calendar.createSpan();
-    const total = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    for (let day = 1; day <= total; day += 1) {
-      const date = new Date(now.getFullYear(), now.getMonth(), day);
-      const button = calendar.createEl("button", { text: String(day) });
-      button.toggleClass("is-today", day === now.getDate());
-      button.addEventListener("click", () => void this.plugin.openDailyNote(date));
-    }
+  private renderQualityContent(parent: HTMLElement): void {
+    const card = this.card(parent, "优质内容收集", "链接提取，或直接粘贴");
+    const linkRow = card.createDiv({ cls: "qj-entry-row" });
+    const linkInput = linkRow.createEl("input", { type: "url", placeholder: "粘贴文章链接…" });
+    const extract = linkRow.createEl("button", { text: "提取", cls: "qj-primary" });
+    const titleInput = card.createEl("input", { type: "text", placeholder: "内容标题…", cls: "qj-quality-title" });
+    const contentInput = card.createEl("textarea", {
+      placeholder: "提取结果会显示在这里；没有链接时可直接粘贴内容…",
+      cls: "qj-quality-input"
+    });
+    const status = card.createDiv({ cls: "qj-muted qj-quality-status" });
+
+    extract.addEventListener("click", async () => {
+      const url = linkInput.value.trim();
+      if (!url) {
+        new Notice("请先输入链接");
+        return;
+      }
+      extract.disabled = true;
+      extract.setText("提取中…");
+      status.setText("正在读取网页内容");
+      try {
+        const result = await this.plugin.extractQualityContent(url);
+        titleInput.value = result.title;
+        contentInput.value = result.content;
+        status.setText("提取完成，可继续编辑后保存");
+      } catch (error) {
+        console.error("清简首页提取内容失败", error);
+        status.setText("提取失败，可直接在文本框粘贴内容");
+        new Notice("网页提取失败，可能需要登录或属于动态页面");
+      } finally {
+        extract.disabled = false;
+        extract.setText("提取");
+      }
+    });
+
+    const actions = card.createDiv({ cls: "qj-inline-actions" });
+    const save = actions.createEl("button", { text: "保存为笔记", cls: "qj-primary" });
+    save.addEventListener("click", async () => {
+      const content = contentInput.value.trim();
+      if (!content) {
+        new Notice("请先提取或粘贴内容");
+        return;
+      }
+      await this.plugin.saveQualityContent(titleInput.value.trim(), content);
+    });
   }
 
   private renderRecent(parent: HTMLElement): void {
@@ -443,12 +518,32 @@ class QingjianSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName("已完成待办笔记")
+      .setDesc("完成的待办会从原笔记移出，并归档到这里。")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.completedTasksPath)
+        .onChange(async (value) => {
+          this.plugin.data.settings.completedTasksPath = value.trim() || "10_已完成待办/已完成待办.md";
+          await this.plugin.persist();
+        }));
+
+    new Setting(containerEl)
       .setName("默认瞬间归档笔记")
       .setDesc("例如：每日瞬间.md 或 记录/每日瞬间.md")
       .addText((text) => text
         .setValue(this.plugin.data.settings.defaultArchivePath)
         .onChange(async (value) => {
           this.plugin.data.settings.defaultArchivePath = value.trim() || "每日瞬间.md";
+          await this.plugin.persist();
+        }));
+
+    new Setting(containerEl)
+      .setName("优质内容文件夹")
+      .setDesc("提取或粘贴的优质内容会保存到这里。")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.qualityContentFolder)
+        .onChange(async (value) => {
+          this.plugin.data.settings.qualityContentFolder = value.trim() || "11_优质内容收集";
           await this.plugin.persist();
         }));
 
@@ -467,6 +562,7 @@ class QingjianSettingTab extends PluginSettingTab {
 export default class QingjianHomePlugin extends Plugin {
   data: HomeData = structuredClone(DEFAULT_DATA);
   vaultTasks: VaultTask[] = [];
+  completedTasks: CompletedTask[] = [];
   private reminderTimer?: number;
   private taskScanTimer?: number;
 
@@ -517,20 +613,32 @@ export default class QingjianHomePlugin extends Plugin {
   async addTask(text: string, priority: Priority): Promise<void> {
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
     const file = await this.getOrCreateFile(path, "# 待办收集\n");
-    await this.app.vault.append(file, `\n- [ ] ${text.replace(/\n/g, " ")} <!-- qj:${priority} -->`);
+    const createdDate = dateKey(new Date());
+    await this.app.vault.append(file, `\n- [ ] ${text.replace(/\n/g, " ")}（创建：${createdDate}） <!-- qj:${priority} created:${createdDate} -->`);
     await this.scanVaultTasks();
   }
 
-  async updateTask(task: VaultTask, changes: { completed?: boolean; priority?: Priority }): Promise<void> {
+  async updateTask(task: VaultTask, changes: { priority?: Priority }): Promise<void> {
     await this.changeTaskLine(task, (line) => {
       let next = line;
-      if (changes.completed !== undefined) next = next.replace(/\[[ xX]\]/, changes.completed ? "[x]" : "[ ]");
       if (changes.priority) {
-        next = next.replace(/\s*<!--\s*qj:(?:urgent|later)\s*-->\s*$/, "");
-        next += ` <!-- qj:${changes.priority} -->`;
+        next = next.replace(/\s*<!--\s*qj:(?:urgent|later)(?:\s+created:\d{4}-\d{2}-\d{2})?\s*-->\s*$/, "");
+        next += ` <!-- qj:${changes.priority} created:${task.createdDate} -->`;
       }
       return next;
     });
+  }
+
+  async completeTask(task: VaultTask): Promise<void> {
+    const completedDate = dateKey(new Date());
+    const path = this.asMarkdownPath(this.data.settings.completedTasksPath);
+    const file = await this.getOrCreateFile(path, "# 已完成待办\n");
+    await this.app.vault.append(
+      file,
+      `\n- [x] ${task.text.replace(/\n/g, " ")}（创建：${task.createdDate}；完成：${completedDate}）`
+    );
+    await this.changeTaskLine(task, () => null);
+    new Notice(`已归档到 ${path}`);
   }
 
   async deleteTask(task: VaultTask): Promise<void> {
@@ -552,6 +660,64 @@ export default class QingjianHomePlugin extends Plugin {
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new Notice(`已归档到 ${path}`);
+  }
+
+  async extractQualityContent(rawUrl: string): Promise<{ title: string; content: string }> {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("不支持的链接协议");
+    const response = await requestUrl({ url: url.toString(), method: "GET" });
+    const document = new DOMParser().parseFromString(response.text, "text/html");
+    document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe")
+      .forEach((element) => element.remove());
+    document.querySelectorAll("img").forEach((image) => {
+      const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
+      if (!source) {
+        image.remove();
+        return;
+      }
+      try {
+        image.setAttribute("src", new URL(source, url).toString());
+      } catch {
+        image.remove();
+      }
+      image.removeAttribute("srcset");
+      image.removeAttribute("data-src");
+    });
+    document.querySelectorAll("a[href]").forEach((link) => {
+      const href = link.getAttribute("href");
+      if (!href) return;
+      try {
+        link.setAttribute("href", new URL(href, url).toString());
+      } catch {
+        link.removeAttribute("href");
+      }
+    });
+    const article = document.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document.body;
+    if (!article) throw new Error("网页没有可提取内容");
+    const title = document.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim()
+      || document.title.trim()
+      || "未命名内容";
+    const markdown = htmlToMarkdown(article as HTMLElement).replace(/\n{3,}/g, "\n\n").trim();
+    if (!markdown) throw new Error("网页正文为空");
+    return {
+      title,
+      content: `> 来源：[${url.hostname}](${url.toString()})\n\n${markdown}`
+    };
+  }
+
+  async saveQualityContent(rawTitle: string, content: string): Promise<void> {
+    const now = new Date();
+    const title = rawTitle || `优质内容-${dateKey(now)}`;
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || `优质内容-${dateKey(now)}`;
+    const folder = normalizePath(this.data.settings.qualityContentFolder.trim() || "11_优质内容收集");
+    let path = this.asMarkdownPath(`${folder}/${safeTitle}`);
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      const time = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${folder}/${safeTitle}-${time}`);
+    }
+    const file = await this.getOrCreateFile(path, `# ${title}\n\n${content}\n`);
+    new Notice(`已保存到 ${path}`);
+    await this.app.workspace.getLeaf(false).openFile(file);
   }
 
   async openDailyNote(date: Date): Promise<void> {
@@ -600,8 +766,17 @@ export default class QingjianHomePlugin extends Plugin {
 
   private async scanVaultTasks(): Promise<void> {
     const found: VaultTask[] = [];
+    const completed: CompletedTask[] = [];
+    const completedPath = this.asMarkdownPath(this.data.settings.completedTasksPath);
     for (const file of this.app.vault.getMarkdownFiles()) {
       const content = await this.app.vault.cachedRead(file);
+      if (file.path === completedPath) {
+        content.split("\n").forEach((rawLine) => {
+          const match = rawLine.match(/^\s*[-*+]\s+\[[xX]\]\s+(.+?)（创建：(\d{4}-\d{2}-\d{2})；完成：(\d{4}-\d{2}-\d{2})）\s*$/);
+          if (match) completed.push({ text: match[1].trim(), createdDate: match[2], completedDate: match[3] });
+        });
+        continue;
+      }
       let insideCodeFence = false;
       content.split("\n").forEach((rawLine, lineNumber) => {
         if (/^\s*(```|~~~)/.test(rawLine)) {
@@ -611,24 +786,30 @@ export default class QingjianHomePlugin extends Plugin {
         if (insideCodeFence) return;
         const match = rawLine.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
         if (!match) return;
-        const priority: Priority = /<!--\s*qj:urgent\s*-->/.test(rawLine) ? "urgent" : "later";
-        const text = match[2].replace(/\s*<!--\s*qj:(?:urgent|later)\s*-->\s*$/, "").trim();
+        if (match[1].toLowerCase() === "x") return;
+        const metadata = rawLine.match(/<!--\s*qj:(urgent|later)(?:\s+created:(\d{4}-\d{2}-\d{2}))?\s*-->/);
+        const priority: Priority = metadata?.[1] === "urgent" ? "urgent" : "later";
+        const withoutMetadata = match[2].replace(/\s*<!--\s*qj:(?:urgent|later)(?:\s+created:\d{4}-\d{2}-\d{2})?\s*-->\s*$/, "").trim();
+        const visibleDate = withoutMetadata.match(/（创建：(\d{4}-\d{2}-\d{2})）\s*$/);
+        const createdDate = metadata?.[2] || visibleDate?.[1] || dateKey(new Date(file.stat.ctime));
+        const text = withoutMetadata.replace(/\s*（创建：\d{4}-\d{2}-\d{2}）\s*$/, "").trim();
         found.push({
           id: `${file.path}:${lineNumber}`,
           text,
           priority,
-          completed: match[1].toLowerCase() === "x",
+          completed: false,
           path: file.path,
           lineNumber,
-          rawLine
+          rawLine,
+          createdDate
         });
       });
     }
     this.vaultTasks = found.sort((a, b) => {
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
       if (a.priority !== b.priority) return a.priority === "urgent" ? -1 : 1;
       return a.path.localeCompare(b.path, "zh-CN");
     });
+    this.completedTasks = completed.sort((a, b) => b.completedDate.localeCompare(a.completedDate));
     this.refreshViews();
   }
 
@@ -636,7 +817,10 @@ export default class QingjianHomePlugin extends Plugin {
     if (!this.data.tasks.length) return;
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
     const file = await this.getOrCreateFile(path, "# 待办收集\n");
-    const lines = this.data.tasks.map((task) => `- [${task.completed ? "x" : " "}] ${task.text.replace(/\n/g, " ")} <!-- qj:${task.priority} -->`);
+    const lines = this.data.tasks.map((task) => {
+      const createdDate = dateKey(new Date(task.createdAt));
+      return `- [${task.completed ? "x" : " "}] ${task.text.replace(/\n/g, " ")}（创建：${createdDate}） <!-- qj:${task.priority} created:${createdDate} -->`;
+    });
     await this.app.vault.append(file, `\n${lines.join("\n")}\n`);
     this.data.tasks = [];
     await this.saveData(this.data);
