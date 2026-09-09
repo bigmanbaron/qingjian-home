@@ -59,11 +59,11 @@
 .qj-filters button { padding: 3px 10px; border-radius: 999px; font-size: .78rem; }
 .qj-filters button.is-active { color: var(--text-on-accent); background: var(--interactive-accent); }
 .qj-list { display: grid; gap: 4px; margin-top: 8px; }
-.qj-list-item { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--background-modifier-border); }
+.qj-list-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--background-modifier-border); }
 .qj-list-item.is-complete .qj-item-text { text-decoration: line-through; color: var(--text-muted); }
-.qj-task-body { min-width: 0; }
-.qj-task-link { display: block; width: 100%; padding: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--text-normal); text-align: left; white-space: normal; }
-.qj-task-date { margin-top: 2px; }
+.qj-task-body { display: grid; min-width: 0; gap: 4px; }
+.qj-task-link { display: block; width: 100%; height: auto; min-height: 0; padding: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--text-normal); text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
+.qj-task-date { position: static; display: block; margin-top: 0; line-height: 1.3; }
 .qj-completed-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); }
 .qj-completed-item { grid-template-columns: auto 1fr; }
 .qj-completed-check { color: var(--text-success); font-weight: 800; }
@@ -101,4 +101,5 @@
   .qj-header { flex-direction: column; }
   .qj-header .qj-primary { width: 100%; }
   .qj-moment-meta { flex-direction: column; gap: 2px; }
+  .qj-list-item { row-gap: 5px; }
 }
