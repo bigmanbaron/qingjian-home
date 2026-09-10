@@ -696,9 +696,13 @@ export default class QingjianHomePlugin extends Plugin {
       await this.app.vault.append(file, `\n## ${date} ${time} · ${title}\n\n${moment.text.trim()}\n`);
     } else {
       const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "瞬间";
-      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
-      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
-      await this.getOrCreateFile(path, `# ${title}\n\n创建时间：${date} ${time}\n\n${moment.text.trim()}\n`);
+      path = this.asMarkdownPath(`${target}/${date}-${safeTitle}`);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) {
+        await this.app.vault.append(existing, `\n\n---\n\n创建时间：${date} ${time}\n\n${moment.text.trim()}\n`);
+      } else {
+        await this.getOrCreateFile(path, `# ${title}\n\n创建时间：${date} ${time}\n\n${moment.text.trim()}\n`);
+      }
     }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();

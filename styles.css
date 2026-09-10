@@ -3,10 +3,17 @@
   --qj-yellow: #d5a928;
   --qj-card: var(--background-primary-alt);
   max-width: 1180px;
+  width: 100%;
+  min-width: 0;
   margin: 0 auto;
   padding: 28px clamp(16px, 4vw, 44px) 60px;
   color: var(--text-normal);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
+
+.qingjian-home *, .qingjian-home *::before, .qingjian-home *::after { box-sizing: border-box; }
+.workspace-leaf-content[data-type="qingjian-home-view"] .view-content { overflow-x: hidden; }
 
 .qj-header {
   display: flex;
@@ -28,6 +35,8 @@
 
 .qj-column { display: grid; gap: 18px; min-width: 0; }
 .qj-card {
+  min-width: 0;
+  max-width: 100%;
   padding: 18px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 14px;
@@ -38,8 +47,8 @@
 .qj-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .qj-card-heading h2 { margin: 0; font-size: 1.05rem; }
 .qj-card-heading span, .qj-muted { color: var(--text-muted); font-size: .8rem; }
-.qj-entry-row { display: flex; gap: 8px; align-items: stretch; }
-.qj-entry-row input { min-width: 0; flex: 1; }
+.qj-entry-row { display: flex; width: 100%; min-width: 0; max-width: 100%; gap: 8px; align-items: stretch; }
+.qj-entry-row input { width: 0; min-width: 0; max-width: 100%; flex: 1 1 0; }
 .qj-primary { background: var(--interactive-accent) !important; color: var(--text-on-accent) !important; }
 
 .qj-priority {
@@ -72,7 +81,7 @@
 
 .qj-moment-input { width: 100%; min-height: 90px; margin-bottom: 8px; resize: vertical; }
 .qj-moment-title { width: 100%; margin-bottom: 8px; }
-.qj-moment-image-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.qj-moment-image-row { display: flex; max-width: 100%; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .qj-moment-image-input { display: none; }
 .qj-moment, .qj-reminder { padding: 10px 2px; border-bottom: 1px solid var(--background-modifier-border); }
 .qj-moment-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: .75rem; }
@@ -94,11 +103,12 @@
 .qj-recent button:hover { background: var(--background-modifier-hover); }
 
 @media (max-width: 780px) {
-  .qingjian-home { padding: 18px 12px 40px; }
+  .qingjian-home { max-width: 100%; padding: 18px 12px 40px; }
   .qj-grid { grid-template-columns: 1fr; }
   .qj-header { align-items: flex-start; }
   .qj-header h1 { font-size: 1.6rem; }
   .qj-entry-row.qj-reminder-form { flex-wrap: wrap; }
+  .qj-entry-row.qj-reminder-form input { width: auto; flex: 1 1 100%; }
 }
 
 @media (max-width: 440px) {
