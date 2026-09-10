@@ -558,14 +558,25 @@ ${moment.text.trim()}
 `);
     } else {
       const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "\u77AC\u95F4";
-      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
-      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
-      await this.getOrCreateFile(path, `# ${title}
+      path = this.asMarkdownPath(`${target}/${date}-${safeTitle}`);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof import_obsidian.TFile) {
+        await this.app.vault.append(existing, `
+
+---
 
 \u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
 
 ${moment.text.trim()}
 `);
+      } else {
+        await this.getOrCreateFile(path, `# ${title}
+
+\u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
+
+${moment.text.trim()}
+`);
+      }
     }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
