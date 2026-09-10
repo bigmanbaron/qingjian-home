@@ -226,6 +226,11 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   renderMoments(parent) {
     const card = this.card(parent, "\u6BCF\u65E5\u77AC\u95F4", "\u5148\u8BB0\u4E0B\uFF0C\u518D\u5F52\u6863");
     const textarea = card.createEl("textarea", { placeholder: "\u6B64\u523B\u5728\u60F3\u4EC0\u4E48\uFF1F", cls: "qj-moment-input" });
+    const titleInput = card.createEl("input", {
+      type: "text",
+      placeholder: "\u6807\u9898\u6216\u5173\u952E\u8BCD\uFF08\u7528\u4E8E\u4FDD\u5B58\u548C\u67E5\u627E\uFF09",
+      cls: "qj-moment-title"
+    });
     const controls = card.createDiv({ cls: "qj-entry-row" });
     const pathInput = controls.createEl("input", {
       type: "text",
@@ -235,7 +240,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const choose = controls.createEl("button", { text: "\u9009\u62E9" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
-        pathInput.value = file instanceof import_obsidian.TFolder ? (0, import_obsidian.normalizePath)(`${file.path}/\u6BCF\u65E5\u77AC\u95F4.md`) : file.path;
+        pathInput.value = file.path;
       }).open();
     });
     const save = controls.createEl("button", { text: "\u8BB0\u4E0B", cls: "qj-primary" });
@@ -244,6 +249,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       if (!text) return;
       this.plugin.data.moments.unshift({
         id: uid(),
+        title: titleInput.value.trim(),
         text,
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
@@ -257,6 +263,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       const meta = item.createDiv({ cls: "qj-moment-meta" });
       meta.createSpan({ text: displayTime(moment.createdAt) });
       meta.createSpan({ text: `\u2192 ${moment.targetPath}` });
+      if (moment.title) item.createDiv({ text: moment.title, cls: "qj-moment-title-text" });
       item.createDiv({ text: moment.text, cls: "qj-moment-text" });
       const actions = item.createDiv({ cls: "qj-inline-actions" });
       const archive = actions.createEl("button", { text: "\u5F52\u6863" });
@@ -510,12 +517,32 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     await leaf.openFile(file, { eState: { line: task.lineNumber } });
   }
   async archiveMoment(moment) {
-    const path = this.asMarkdownPath(moment.targetPath || this.data.settings.defaultArchivePath);
-    const file = await this.getOrCreateFile(path, "# \u6BCF\u65E5\u77AC\u95F4\n");
-    const line = `
-- ${dateKey(new Date(moment.createdAt))} ${new Date(moment.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} ${moment.text.replace(/\n/g, " ")}
-`;
-    await this.app.vault.append(file, line);
+    var _a;
+    const created = new Date(moment.createdAt);
+    const date = dateKey(created);
+    const time = created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const title = ((_a = moment.title) == null ? void 0 : _a.trim()) || "\u77AC\u95F4";
+    const target = (0, import_obsidian.normalizePath)((moment.targetPath || this.data.settings.defaultArchivePath).trim());
+    let path;
+    if (target.toLowerCase().endsWith(".md")) {
+      path = this.asMarkdownPath(target);
+      const file = await this.getOrCreateFile(path, "# \u6BCF\u65E5\u77AC\u95F4\n");
+      await this.app.vault.append(file, `
+## ${date} ${time} \xB7 ${title}
+
+${moment.text.trim()}
+`);
+    } else {
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "\u77AC\u95F4";
+      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
+      await this.getOrCreateFile(path, `# ${title}
+
+\u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
+
+${moment.text.trim()}
+`);
+    }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new import_obsidian.Notice(`\u5DF2\u5F52\u6863\u5230 ${path}`);

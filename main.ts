@@ -47,6 +47,7 @@ interface CompletedTask {
 
 interface Moment {
   id: string;
+  title?: string;
   text: string;
   createdAt: number;
   targetPath: string;
@@ -310,6 +311,11 @@ class QingjianHomeView extends ItemView {
   private renderMoments(parent: HTMLElement): void {
     const card = this.card(parent, "每日瞬间", "先记下，再归档");
     const textarea = card.createEl("textarea", { placeholder: "此刻在想什么？", cls: "qj-moment-input" });
+    const titleInput = card.createEl("input", {
+      type: "text",
+      placeholder: "标题或关键词（用于保存和查找）",
+      cls: "qj-moment-title"
+    });
     const controls = card.createDiv({ cls: "qj-entry-row" });
     const pathInput = controls.createEl("input", {
       type: "text",
@@ -319,7 +325,7 @@ class QingjianHomeView extends ItemView {
     const choose = controls.createEl("button", { text: "选择" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
-        pathInput.value = file instanceof TFolder ? normalizePath(`${file.path}/每日瞬间.md`) : file.path;
+        pathInput.value = file.path;
       }).open();
     });
     const save = controls.createEl("button", { text: "记下", cls: "qj-primary" });
@@ -328,6 +334,7 @@ class QingjianHomeView extends ItemView {
       if (!text) return;
       this.plugin.data.moments.unshift({
         id: uid(),
+        title: titleInput.value.trim(),
         text,
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
@@ -342,6 +349,7 @@ class QingjianHomeView extends ItemView {
       const meta = item.createDiv({ cls: "qj-moment-meta" });
       meta.createSpan({ text: displayTime(moment.createdAt) });
       meta.createSpan({ text: `→ ${moment.targetPath}` });
+      if (moment.title) item.createDiv({ text: moment.title, cls: "qj-moment-title-text" });
       item.createDiv({ text: moment.text, cls: "qj-moment-text" });
       const actions = item.createDiv({ cls: "qj-inline-actions" });
       const archive = actions.createEl("button", { text: "归档" });
@@ -653,10 +661,22 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   async archiveMoment(moment: Moment): Promise<void> {
-    const path = this.asMarkdownPath(moment.targetPath || this.data.settings.defaultArchivePath);
-    const file = await this.getOrCreateFile(path, "# 每日瞬间\n");
-    const line = `\n- ${dateKey(new Date(moment.createdAt))} ${new Date(moment.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} ${moment.text.replace(/\n/g, " ")}\n`;
-    await this.app.vault.append(file, line);
+    const created = new Date(moment.createdAt);
+    const date = dateKey(created);
+    const time = created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const title = moment.title?.trim() || "瞬间";
+    const target = normalizePath((moment.targetPath || this.data.settings.defaultArchivePath).trim());
+    let path: string;
+    if (target.toLowerCase().endsWith(".md")) {
+      path = this.asMarkdownPath(target);
+      const file = await this.getOrCreateFile(path, "# 每日瞬间\n");
+      await this.app.vault.append(file, `\n## ${date} ${time} · ${title}\n\n${moment.text.trim()}\n`);
+    } else {
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "瞬间";
+      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
+      await this.getOrCreateFile(path, `# ${title}\n\n创建时间：${date} ${time}\n\n${moment.text.trim()}\n`);
+    }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new Notice(`已归档到 ${path}`);
