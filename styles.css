@@ -14,6 +14,17 @@
 
 .qingjian-home *, .qingjian-home *::before, .qingjian-home *::after { box-sizing: border-box; }
 .workspace-leaf-content[data-type="qingjian-home-view"] .view-content { overflow-x: hidden; }
+.qingjian-home h1, .qingjian-home h2, .qingjian-home p,
+.qingjian-home .qj-item-text, .qingjian-home .qj-muted,
+.qingjian-home .qj-moment-title-text, .qingjian-home .qj-moment-text,
+.qingjian-home .qj-moment-meta span, .qingjian-home .qj-empty {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.qingjian-home button { max-width: 100%; }
 
 .qj-header {
   display: flex;
@@ -44,7 +55,8 @@
   box-shadow: 0 4px 18px rgba(0, 0, 0, .04);
 }
 
-.qj-card-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.qj-card-heading { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.qj-card-heading > div { min-width: 0; }
 .qj-card-heading h2 { margin: 0; font-size: 1.05rem; }
 .qj-card-heading span, .qj-muted { color: var(--text-muted); font-size: .8rem; }
 .qj-entry-row { display: flex; width: 100%; min-width: 0; max-width: 100%; gap: 8px; align-items: stretch; }
@@ -64,7 +76,7 @@
 
 .qj-priority.qj-urgent { color: var(--qj-red); }
 .qj-priority.qj-later { color: var(--qj-yellow); }
-.qj-filters { display: flex; gap: 6px; margin: 12px 0 4px; }
+.qj-filters { display: flex; max-width: 100%; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
 .qj-filters button { padding: 3px 10px; border-radius: 999px; font-size: .78rem; }
 .qj-filters button.is-active { color: var(--text-on-accent); background: var(--interactive-accent); }
 .qj-list { display: grid; gap: 4px; margin-top: 8px; }
@@ -87,7 +99,7 @@
 .qj-moment-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: .75rem; }
 .qj-moment-title-text { margin-top: 6px; font-weight: 700; }
 .qj-moment-text { margin: 6px 0; white-space: pre-wrap; }
-.qj-inline-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.qj-inline-actions { display: flex; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .qj-inline-actions button { padding: 3px 9px; font-size: .75rem; }
 .qj-reminder.is-due { border-left: 3px solid var(--qj-red); padding-left: 10px; }
 .qj-reminder-form { margin-top: 8px; }
@@ -99,7 +111,10 @@
 .qj-quality-input { width: 100%; min-height: 180px; margin-top: 8px; resize: vertical; }
 .qj-quality-status { min-height: 1.2em; margin-top: 4px; }
 .qj-recent { display: grid; gap: 3px; }
-.qj-recent button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px; border: 0; background: transparent; box-shadow: none; text-align: left; }
+.qj-recent button { display: flex; min-width: 0; max-width: 100%; justify-content: space-between; align-items: flex-start; gap: 12px; width: 100%; padding: 8px; border: 0; background: transparent; box-shadow: none; text-align: left; white-space: normal; }
+.qj-recent button span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.qj-recent button span:first-child { flex: 1 1 auto; }
+.qj-recent button span:last-child { flex: 0 0 auto; }
 .qj-recent button:hover { background: var(--background-modifier-hover); }
 
 @media (max-width: 780px) {
@@ -116,4 +131,5 @@
   .qj-header .qj-primary { width: 100%; }
   .qj-moment-meta { flex-direction: column; gap: 2px; }
   .qj-list-item { row-gap: 5px; }
+  .qj-recent button { flex-direction: column; gap: 4px; }
 }
