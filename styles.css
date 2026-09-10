@@ -72,6 +72,8 @@
 
 .qj-moment-input { width: 100%; min-height: 90px; margin-bottom: 8px; resize: vertical; }
 .qj-moment-title { width: 100%; margin-bottom: 8px; }
+.qj-moment-image-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.qj-moment-image-input { display: none; }
 .qj-moment, .qj-reminder { padding: 10px 2px; border-bottom: 1px solid var(--background-modifier-border); }
 .qj-moment-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: .75rem; }
 .qj-moment-title-text { margin-top: 6px; font-weight: 700; }
