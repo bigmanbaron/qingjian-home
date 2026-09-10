@@ -47,6 +47,7 @@ interface CompletedTask {
 
 interface Moment {
   id: string;
+  title?: string;
   text: string;
   createdAt: number;
   targetPath: string;
@@ -309,7 +310,35 @@ class QingjianHomeView extends ItemView {
 
   private renderMoments(parent: HTMLElement): void {
     const card = this.card(parent, "每日瞬间", "先记下，再归档");
+    const titleInput = card.createEl("input", {
+      type: "text",
+      placeholder: "标题或关键词（用于保存和查找）",
+      cls: "qj-moment-title"
+    });
     const textarea = card.createEl("textarea", { placeholder: "此刻在想什么？", cls: "qj-moment-input" });
+    const imageRow = card.createDiv({ cls: "qj-moment-image-row" });
+    const imageInput = imageRow.createEl("input", { type: "file", cls: "qj-moment-image-input" });
+    imageInput.accept = "image/*";
+    imageInput.multiple = true;
+    const addImage = imageRow.createEl("button", { text: "添加图片" });
+    imageRow.createSpan({ text: "自动压缩后保存", cls: "qj-muted" });
+    addImage.addEventListener("click", () => imageInput.click());
+    imageInput.addEventListener("change", async () => {
+      const files = Array.from(imageInput.files ?? []);
+      if (!files.length) return;
+      addImage.disabled = true;
+      try {
+        const links = await this.plugin.saveMomentImages(files);
+        textarea.value = `${textarea.value.trimEnd()}${textarea.value.trim() ? "\n\n" : ""}${links.join("\n")}`;
+        new Notice(`已添加 ${links.length} 张图片`);
+      } catch (error) {
+        console.error("清简首页保存图片失败", error);
+        new Notice("图片保存失败，请重试");
+      } finally {
+        imageInput.value = "";
+        addImage.disabled = false;
+      }
+    });
     const controls = card.createDiv({ cls: "qj-entry-row" });
     const pathInput = controls.createEl("input", {
       type: "text",
@@ -319,7 +348,7 @@ class QingjianHomeView extends ItemView {
     const choose = controls.createEl("button", { text: "选择" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
-        pathInput.value = file instanceof TFolder ? normalizePath(`${file.path}/每日瞬间.md`) : file.path;
+        pathInput.value = file.path;
       }).open();
     });
     const save = controls.createEl("button", { text: "记下", cls: "qj-primary" });
@@ -328,6 +357,7 @@ class QingjianHomeView extends ItemView {
       if (!text) return;
       this.plugin.data.moments.unshift({
         id: uid(),
+        title: titleInput.value.trim(),
         text,
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
@@ -342,6 +372,7 @@ class QingjianHomeView extends ItemView {
       const meta = item.createDiv({ cls: "qj-moment-meta" });
       meta.createSpan({ text: displayTime(moment.createdAt) });
       meta.createSpan({ text: `→ ${moment.targetPath}` });
+      if (moment.title) item.createDiv({ text: moment.title, cls: "qj-moment-title-text" });
       item.createDiv({ text: moment.text, cls: "qj-moment-text" });
       const actions = item.createDiv({ cls: "qj-inline-actions" });
       const archive = actions.createEl("button", { text: "归档" });
@@ -653,13 +684,89 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   async archiveMoment(moment: Moment): Promise<void> {
-    const path = this.asMarkdownPath(moment.targetPath || this.data.settings.defaultArchivePath);
-    const file = await this.getOrCreateFile(path, "# 每日瞬间\n");
-    const line = `\n- ${dateKey(new Date(moment.createdAt))} ${new Date(moment.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} ${moment.text.replace(/\n/g, " ")}\n`;
-    await this.app.vault.append(file, line);
+    const created = new Date(moment.createdAt);
+    const date = dateKey(created);
+    const time = created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const title = moment.title?.trim() || "瞬间";
+    const target = normalizePath((moment.targetPath || this.data.settings.defaultArchivePath).trim());
+    let path: string;
+    if (target.toLowerCase().endsWith(".md")) {
+      path = this.asMarkdownPath(target);
+      const file = await this.getOrCreateFile(path, "# 每日瞬间\n");
+      await this.app.vault.append(file, `\n## ${date} ${time} · ${title}\n\n${moment.text.trim()}\n`);
+    } else {
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "瞬间";
+      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
+      await this.getOrCreateFile(path, `# ${title}\n\n创建时间：${date} ${time}\n\n${moment.text.trim()}\n`);
+    }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new Notice(`已归档到 ${path}`);
+  }
+
+  async saveMomentImages(files: File[]): Promise<string[]> {
+    const now = new Date();
+    const folder = normalizePath(`_assets/每日瞬间/${dateKey(now)}`);
+    let current = "";
+    for (const part of folder.split("/")) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
+    const links: string[] = [];
+    for (const [index, file] of files.entries()) {
+      const safeName = file.name.replace(/[\\/:*?"<>|]/g, "-").trim() || `图片-${index + 1}`;
+      const dot = safeName.lastIndexOf(".");
+      const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+      const originalExtension = dot > 0 ? safeName.slice(dot) : ".jpg";
+      const compressed = await this.compressMomentImage(file, originalExtension);
+      const stamp = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      let path = normalizePath(`${folder}/${stamp}-${base}${compressed.extension}`);
+      let suffix = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = normalizePath(`${folder}/${stamp}-${base}-${suffix}${compressed.extension}`);
+        suffix += 1;
+      }
+      await this.app.vault.createBinary(path, compressed.data);
+      links.push(`![[${path}]]`);
+    }
+    return links;
+  }
+
+  private async compressMomentImage(file: File, originalExtension: string): Promise<{ data: ArrayBuffer; extension: string }> {
+    const original = await file.arrayBuffer();
+    if (!file.type.startsWith("image/")) return { data: original, extension: originalExtension };
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("无法读取图片"));
+        element.src = objectUrl;
+      });
+      const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return { data: original, extension: originalExtension };
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const targetSize = file.size * 0.4;
+      let best: Blob | null = null;
+      for (const quality of [0.92, 0.88, 0.84, 0.8, 0.76, 0.72]) {
+        const candidate = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!candidate || candidate.size >= file.size) continue;
+        if (!best || Math.abs(candidate.size - targetSize) < Math.abs(best.size - targetSize)) best = candidate;
+      }
+      if (!best) return { data: original, extension: originalExtension };
+      return { data: await best.arrayBuffer(), extension: ".jpg" };
+    } catch {
+      return { data: original, extension: originalExtension };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 
   async extractQualityContent(rawUrl: string): Promise<{ title: string; content: string }> {

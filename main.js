@@ -225,7 +225,36 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   }
   renderMoments(parent) {
     const card = this.card(parent, "\u6BCF\u65E5\u77AC\u95F4", "\u5148\u8BB0\u4E0B\uFF0C\u518D\u5F52\u6863");
+    const titleInput = card.createEl("input", {
+      type: "text",
+      placeholder: "\u6807\u9898\u6216\u5173\u952E\u8BCD\uFF08\u7528\u4E8E\u4FDD\u5B58\u548C\u67E5\u627E\uFF09",
+      cls: "qj-moment-title"
+    });
     const textarea = card.createEl("textarea", { placeholder: "\u6B64\u523B\u5728\u60F3\u4EC0\u4E48\uFF1F", cls: "qj-moment-input" });
+    const imageRow = card.createDiv({ cls: "qj-moment-image-row" });
+    const imageInput = imageRow.createEl("input", { type: "file", cls: "qj-moment-image-input" });
+    imageInput.accept = "image/*";
+    imageInput.multiple = true;
+    const addImage = imageRow.createEl("button", { text: "\u6DFB\u52A0\u56FE\u7247" });
+    imageRow.createSpan({ text: "\u81EA\u52A8\u538B\u7F29\u540E\u4FDD\u5B58", cls: "qj-muted" });
+    addImage.addEventListener("click", () => imageInput.click());
+    imageInput.addEventListener("change", async () => {
+      var _a;
+      const files = Array.from((_a = imageInput.files) != null ? _a : []);
+      if (!files.length) return;
+      addImage.disabled = true;
+      try {
+        const links = await this.plugin.saveMomentImages(files);
+        textarea.value = `${textarea.value.trimEnd()}${textarea.value.trim() ? "\n\n" : ""}${links.join("\n")}`;
+        new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${links.length} \u5F20\u56FE\u7247`);
+      } catch (error) {
+        console.error("\u6E05\u7B80\u9996\u9875\u4FDD\u5B58\u56FE\u7247\u5931\u8D25", error);
+        new import_obsidian.Notice("\u56FE\u7247\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+      } finally {
+        imageInput.value = "";
+        addImage.disabled = false;
+      }
+    });
     const controls = card.createDiv({ cls: "qj-entry-row" });
     const pathInput = controls.createEl("input", {
       type: "text",
@@ -235,7 +264,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const choose = controls.createEl("button", { text: "\u9009\u62E9" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
-        pathInput.value = file instanceof import_obsidian.TFolder ? (0, import_obsidian.normalizePath)(`${file.path}/\u6BCF\u65E5\u77AC\u95F4.md`) : file.path;
+        pathInput.value = file.path;
       }).open();
     });
     const save = controls.createEl("button", { text: "\u8BB0\u4E0B", cls: "qj-primary" });
@@ -244,6 +273,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       if (!text) return;
       this.plugin.data.moments.unshift({
         id: uid(),
+        title: titleInput.value.trim(),
         text,
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
@@ -257,6 +287,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       const meta = item.createDiv({ cls: "qj-moment-meta" });
       meta.createSpan({ text: displayTime(moment.createdAt) });
       meta.createSpan({ text: `\u2192 ${moment.targetPath}` });
+      if (moment.title) item.createDiv({ text: moment.title, cls: "qj-moment-title-text" });
       item.createDiv({ text: moment.text, cls: "qj-moment-text" });
       const actions = item.createDiv({ cls: "qj-inline-actions" });
       const archive = actions.createEl("button", { text: "\u5F52\u6863" });
@@ -510,24 +541,106 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     await leaf.openFile(file, { eState: { line: task.lineNumber } });
   }
   async archiveMoment(moment) {
-    const path = this.asMarkdownPath(moment.targetPath || this.data.settings.defaultArchivePath);
-    const file = await this.getOrCreateFile(path, "# \u6BCF\u65E5\u77AC\u95F4\n");
-    const line = `
-- ${dateKey(new Date(moment.createdAt))} ${new Date(moment.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} ${moment.text.replace(/\n/g, " ")}
-`;
-    await this.app.vault.append(file, line);
+    var _a;
+    const created = new Date(moment.createdAt);
+    const date = dateKey(created);
+    const time = created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const title = ((_a = moment.title) == null ? void 0 : _a.trim()) || "\u77AC\u95F4";
+    const target = (0, import_obsidian.normalizePath)((moment.targetPath || this.data.settings.defaultArchivePath).trim());
+    let path;
+    if (target.toLowerCase().endsWith(".md")) {
+      path = this.asMarkdownPath(target);
+      const file = await this.getOrCreateFile(path, "# \u6BCF\u65E5\u77AC\u95F4\n");
+      await this.app.vault.append(file, `
+## ${date} ${time} \xB7 ${title}
+
+${moment.text.trim()}
+`);
+    } else {
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "\u77AC\u95F4";
+      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
+      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
+      await this.getOrCreateFile(path, `# ${title}
+
+\u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
+
+${moment.text.trim()}
+`);
+    }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new import_obsidian.Notice(`\u5DF2\u5F52\u6863\u5230 ${path}`);
+  }
+  async saveMomentImages(files) {
+    const now = /* @__PURE__ */ new Date();
+    const folder = (0, import_obsidian.normalizePath)(`_assets/\u6BCF\u65E5\u77AC\u95F4/${dateKey(now)}`);
+    let current = "";
+    for (const part of folder.split("/")) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
+    const links = [];
+    for (const [index, file] of files.entries()) {
+      const safeName = file.name.replace(/[\\/:*?"<>|]/g, "-").trim() || `\u56FE\u7247-${index + 1}`;
+      const dot = safeName.lastIndexOf(".");
+      const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+      const originalExtension = dot > 0 ? safeName.slice(dot) : ".jpg";
+      const compressed = await this.compressMomentImage(file, originalExtension);
+      const stamp = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      let path = (0, import_obsidian.normalizePath)(`${folder}/${stamp}-${base}${compressed.extension}`);
+      let suffix = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = (0, import_obsidian.normalizePath)(`${folder}/${stamp}-${base}-${suffix}${compressed.extension}`);
+        suffix += 1;
+      }
+      await this.app.vault.createBinary(path, compressed.data);
+      links.push(`![[${path}]]`);
+    }
+    return links;
+  }
+  async compressMomentImage(file, originalExtension) {
+    const original = await file.arrayBuffer();
+    if (!file.type.startsWith("image/")) return { data: original, extension: originalExtension };
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("\u65E0\u6CD5\u8BFB\u53D6\u56FE\u7247"));
+        element.src = objectUrl;
+      });
+      const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return { data: original, extension: originalExtension };
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const targetSize = file.size * 0.4;
+      let best = null;
+      for (const quality of [0.92, 0.88, 0.84, 0.8, 0.76, 0.72]) {
+        const candidate = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!candidate || candidate.size >= file.size) continue;
+        if (!best || Math.abs(candidate.size - targetSize) < Math.abs(best.size - targetSize)) best = candidate;
+      }
+      if (!best) return { data: original, extension: originalExtension };
+      return { data: await best.arrayBuffer(), extension: ".jpg" };
+    } catch (e) {
+      return { data: original, extension: originalExtension };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
   async extractQualityContent(rawUrl) {
     var _a, _b;
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u534F\u8BAE");
     const response = await (0, import_obsidian.requestUrl)({ url: url.toString(), method: "GET" });
-    const document = new DOMParser().parseFromString(response.text, "text/html");
-    document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
-    document.querySelectorAll("img").forEach((image) => {
+    const document2 = new DOMParser().parseFromString(response.text, "text/html");
+    document2.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
+    document2.querySelectorAll("img").forEach((image) => {
       const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
       if (!source) {
         image.remove();
@@ -541,7 +654,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       image.removeAttribute("srcset");
       image.removeAttribute("data-src");
     });
-    document.querySelectorAll("a[href]").forEach((link) => {
+    document2.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href) return;
       try {
@@ -550,9 +663,9 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
         link.removeAttribute("href");
       }
     });
-    const article = document.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document.body;
+    const article = document2.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document2.body;
     if (!article) throw new Error("\u7F51\u9875\u6CA1\u6709\u53EF\u63D0\u53D6\u5185\u5BB9");
-    const title = ((_b = (_a = document.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
+    const title = ((_b = (_a = document2.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document2.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
     const markdown = (0, import_obsidian.htmlToMarkdown)(article).replace(/\n{3,}/g, "\n\n").trim();
     if (!markdown) throw new Error("\u7F51\u9875\u6B63\u6587\u4E3A\u7A7A");
     return {

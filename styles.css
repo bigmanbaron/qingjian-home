@@ -71,8 +71,12 @@
 .qj-empty { padding: 18px 4px 8px; text-align: center; color: var(--text-faint); }
 
 .qj-moment-input { width: 100%; min-height: 90px; margin-bottom: 8px; resize: vertical; }
+.qj-moment-title { width: 100%; margin-bottom: 8px; }
+.qj-moment-image-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.qj-moment-image-input { display: none; }
 .qj-moment, .qj-reminder { padding: 10px 2px; border-bottom: 1px solid var(--background-modifier-border); }
 .qj-moment-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: .75rem; }
+.qj-moment-title-text { margin-top: 6px; font-weight: 700; }
 .qj-moment-text { margin: 6px 0; white-space: pre-wrap; }
 .qj-inline-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .qj-inline-actions button { padding: 3px 9px; font-size: .75rem; }
