@@ -780,20 +780,6 @@ export default class QingjianHomePlugin extends Plugin {
     const document = new DOMParser().parseFromString(response.text, "text/html");
     document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe")
       .forEach((element) => element.remove());
-    document.querySelectorAll("img").forEach((image) => {
-      const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
-      if (!source) {
-        image.remove();
-        return;
-      }
-      try {
-        image.setAttribute("src", new URL(source, url).toString());
-      } catch {
-        image.remove();
-      }
-      image.removeAttribute("srcset");
-      image.removeAttribute("data-src");
-    });
     document.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href) return;
@@ -805,10 +791,40 @@ export default class QingjianHomePlugin extends Plugin {
     });
     const article = document.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document.body;
     if (!article) throw new Error("网页没有可提取内容");
+    const extractedImages: Array<{ token: string; markdown: string }> = [];
+    article.querySelectorAll("img").forEach((image, index) => {
+      const srcset = image.getAttribute("data-srcset") || image.getAttribute("srcset")
+        || image.closest("picture")?.querySelector("source[data-srcset], source[srcset]")?.getAttribute("data-srcset")
+        || image.closest("picture")?.querySelector("source[srcset]")?.getAttribute("srcset");
+      const srcsetSource = srcset?.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean).pop();
+      const source = image.getAttribute("data-original")
+        || image.getAttribute("data-lazy-src")
+        || image.getAttribute("data-src")
+        || srcsetSource
+        || image.getAttribute("src");
+      if (!source || /^(data|blob):/i.test(source)) {
+        image.remove();
+        return;
+      }
+      try {
+        const absoluteSource = new URL(source, url).toString();
+        const alt = (image.getAttribute("alt") || image.getAttribute("title") || "图片")
+          .replace(/[\\[\]]/g, "").trim() || "图片";
+        const token = `QJEXTRACTEDIMAGE${index}TOKEN`;
+        extractedImages.push({ token, markdown: `![${alt}](<${absoluteSource}>)` });
+        image.replaceWith(document.createTextNode(`\n\n${token}\n\n`));
+      } catch {
+        image.remove();
+      }
+    });
     const title = document.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim()
       || document.title.trim()
       || "未命名内容";
-    const markdown = htmlToMarkdown(article as HTMLElement).replace(/\n{3,}/g, "\n\n").trim();
+    let markdown = htmlToMarkdown(article as HTMLElement);
+    extractedImages.forEach(({ token, markdown: imageMarkdown }) => {
+      markdown = markdown.split(token).join(imageMarkdown);
+    });
+    markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
     if (!markdown) throw new Error("网页正文为空");
     return {
       title,
