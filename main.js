@@ -651,20 +651,6 @@ ${moment.text.trim()}
     const response = await (0, import_obsidian.requestUrl)({ url: url.toString(), method: "GET" });
     const document2 = new DOMParser().parseFromString(response.text, "text/html");
     document2.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
-    document2.querySelectorAll("img").forEach((image) => {
-      const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
-      if (!source) {
-        image.remove();
-        return;
-      }
-      try {
-        image.setAttribute("src", new URL(source, url).toString());
-      } catch (e) {
-        image.remove();
-      }
-      image.removeAttribute("srcset");
-      image.removeAttribute("data-src");
-    });
     document2.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href) return;
@@ -676,8 +662,36 @@ ${moment.text.trim()}
     });
     const article = document2.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document2.body;
     if (!article) throw new Error("\u7F51\u9875\u6CA1\u6709\u53EF\u63D0\u53D6\u5185\u5BB9");
+    const extractedImages = [];
+    article.querySelectorAll("img").forEach((image, index) => {
+      var _a2, _b2, _c, _d;
+      const srcset = image.getAttribute("data-srcset") || image.getAttribute("srcset") || ((_b2 = (_a2 = image.closest("picture")) == null ? void 0 : _a2.querySelector("source[data-srcset], source[srcset]")) == null ? void 0 : _b2.getAttribute("data-srcset")) || ((_d = (_c = image.closest("picture")) == null ? void 0 : _c.querySelector("source[srcset]")) == null ? void 0 : _d.getAttribute("srcset"));
+      const srcsetSource = srcset == null ? void 0 : srcset.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean).pop();
+      const source = image.getAttribute("data-original") || image.getAttribute("data-lazy-src") || image.getAttribute("data-src") || srcsetSource || image.getAttribute("src");
+      if (!source || /^(data|blob):/i.test(source)) {
+        image.remove();
+        return;
+      }
+      try {
+        const absoluteSource = new URL(source, url).toString();
+        const alt = (image.getAttribute("alt") || image.getAttribute("title") || "\u56FE\u7247").replace(/[\\[\]]/g, "").trim() || "\u56FE\u7247";
+        const token = `QJEXTRACTEDIMAGE${index}TOKEN`;
+        extractedImages.push({ token, markdown: `![${alt}](<${absoluteSource}>)` });
+        image.replaceWith(document2.createTextNode(`
+
+${token}
+
+`));
+      } catch (e) {
+        image.remove();
+      }
+    });
     const title = ((_b = (_a = document2.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document2.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
-    const markdown = (0, import_obsidian.htmlToMarkdown)(article).replace(/\n{3,}/g, "\n\n").trim();
+    let markdown = (0, import_obsidian.htmlToMarkdown)(article);
+    extractedImages.forEach(({ token, markdown: imageMarkdown }) => {
+      markdown = markdown.split(token).join(imageMarkdown);
+    });
+    markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
     if (!markdown) throw new Error("\u7F51\u9875\u6B63\u6587\u4E3A\u7A7A");
     return {
       title,
