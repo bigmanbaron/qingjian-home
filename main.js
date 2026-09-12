@@ -84,6 +84,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     super(leaf);
     this.taskFilter = "all";
     this.showCompletedTasks = false;
+    this.drafts = /* @__PURE__ */ new Map();
     this.plugin = plugin;
   }
   getViewType() {
@@ -142,12 +143,28 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     if (subtitle) text.createEl("span", { text: subtitle });
     return card;
   }
+  bindDraft(element, key, fallback = "") {
+    var _a;
+    element.value = (_a = this.drafts.get(key)) != null ? _a : fallback;
+    const remember = () => {
+      this.drafts.set(key, element.value);
+    };
+    element.addEventListener("input", remember);
+    element.addEventListener("change", remember);
+  }
+  clearDraft(...keys) {
+    keys.forEach((key) => this.drafts.delete(key));
+  }
   renderTasks(parent) {
     const activeCount = this.plugin.vaultTasks.filter((task) => !task.completed).length;
     const card = this.card(parent, "\u5F85\u529E\u6E05\u5355", `${activeCount} \u9879\u672A\u5B8C\u6210`);
     const form = card.createDiv({ cls: "qj-entry-row" });
     const priorityButton = form.createEl("button", { text: "\u6025", cls: "qj-priority qj-urgent" });
-    priorityButton.dataset.priority = "urgent";
+    const taskPriority = this.drafts.get("task-priority") === "later" ? "later" : "urgent";
+    priorityButton.dataset.priority = taskPriority;
+    priorityButton.setText(taskPriority === "urgent" ? "\u6025" : "\u7F13");
+    priorityButton.toggleClass("qj-urgent", taskPriority === "urgent");
+    priorityButton.toggleClass("qj-later", taskPriority === "later");
     priorityButton.setAttr("aria-label", "\u70B9\u51FB\u5207\u6362\u6025\u7F13");
     priorityButton.addEventListener("click", () => {
       const next = priorityButton.dataset.priority === "urgent" ? "later" : "urgent";
@@ -155,12 +172,15 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       priorityButton.setText(next === "urgent" ? "\u6025" : "\u7F13");
       priorityButton.toggleClass("qj-urgent", next === "urgent");
       priorityButton.toggleClass("qj-later", next === "later");
+      this.drafts.set("task-priority", next);
     });
     const input = form.createEl("input", { type: "text", placeholder: "\u6DFB\u52A0\u4E00\u9879\u5F85\u529E\u2026" });
+    this.bindDraft(input, "task-text");
     const add = form.createEl("button", { text: "\u6DFB\u52A0", cls: "qj-primary" });
     const submit = async () => {
       const text = input.value.trim();
       if (!text) return;
+      this.clearDraft("task-text");
       await this.plugin.addTask(text, priorityButton.dataset.priority === "later" ? "later" : "urgent");
     };
     add.addEventListener("click", () => void submit());
@@ -231,6 +251,8 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       cls: "qj-moment-title"
     });
     const textarea = card.createEl("textarea", { placeholder: "\u6B64\u523B\u5728\u60F3\u4EC0\u4E48\uFF1F", cls: "qj-moment-input" });
+    this.bindDraft(titleInput, "moment-title");
+    this.bindDraft(textarea, "moment-text");
     const imageRow = card.createDiv({ cls: "qj-moment-image-row" });
     const imageInput = imageRow.createEl("input", { type: "file", cls: "qj-moment-image-input" });
     imageInput.accept = "image/*";
@@ -246,6 +268,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       try {
         const links = await this.plugin.saveMomentImages(files);
         textarea.value = `${textarea.value.trimEnd()}${textarea.value.trim() ? "\n\n" : ""}${links.join("\n")}`;
+        this.drafts.set("moment-text", textarea.value);
         new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${links.length} \u5F20\u56FE\u7247`);
       } catch (error) {
         console.error("\u6E05\u7B80\u9996\u9875\u4FDD\u5B58\u56FE\u7247\u5931\u8D25", error);
@@ -261,10 +284,12 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       placeholder: "\u5F52\u6863\u7B14\u8BB0\u8DEF\u5F84",
       value: this.plugin.data.settings.defaultArchivePath
     });
+    this.bindDraft(pathInput, "moment-path", this.plugin.data.settings.defaultArchivePath);
     const choose = controls.createEl("button", { text: "\u9009\u62E9" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
         pathInput.value = file.path;
+        this.drafts.set("moment-path", pathInput.value);
       }).open();
     });
     const save = controls.createEl("button", { text: "\u8BB0\u4E0B", cls: "qj-primary" });
@@ -278,6 +303,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
       });
+      this.clearDraft("moment-title", "moment-text", "moment-path");
       await this.plugin.persist();
     });
     const list = card.createDiv({ cls: "qj-list" });
@@ -303,13 +329,16 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const pending = this.plugin.data.reminders.filter((reminder) => !reminder.completed);
     const card = this.card(parent, "\u5B9A\u65F6\u63D0\u9192", `${pending.length} \u9879`);
     const textInput = card.createEl("input", { type: "text", placeholder: "\u63D0\u9192\u5185\u5BB9\u2026" });
+    this.bindDraft(textInput, "reminder-text");
     const timeRow = card.createDiv({ cls: "qj-entry-row qj-reminder-form" });
     const timeInput = timeRow.createEl("input", { type: "datetime-local" });
     timeInput.value = toDateTimeLocal(new Date(Date.now() + 36e5));
+    this.bindDraft(timeInput, "reminder-time", timeInput.value);
     const repeat = timeRow.createEl("select");
     repeat.createEl("option", { text: "\u4E0D\u91CD\u590D", value: "none" });
     repeat.createEl("option", { text: "\u6BCF\u5929", value: "daily" });
     repeat.createEl("option", { text: "\u6BCF\u5468", value: "weekly" });
+    this.bindDraft(repeat, "reminder-repeat", "none");
     const add = timeRow.createEl("button", { text: "\u6DFB\u52A0", cls: "qj-primary" });
     add.addEventListener("click", async () => {
       const text = textInput.value.trim();
@@ -319,6 +348,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         return;
       }
       this.plugin.data.reminders.push({ id: uid(), text, dueAt, repeat: repeat.value, completed: false });
+      this.clearDraft("reminder-text", "reminder-time", "reminder-repeat");
       await this.plugin.persist();
     });
     const list = card.createDiv({ cls: "qj-list" });
@@ -365,6 +395,9 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       placeholder: "\u63D0\u53D6\u7ED3\u679C\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\uFF1B\u6CA1\u6709\u94FE\u63A5\u65F6\u53EF\u76F4\u63A5\u7C98\u8D34\u5185\u5BB9\u2026",
       cls: "qj-quality-input"
     });
+    this.bindDraft(linkInput, "quality-url");
+    this.bindDraft(titleInput, "quality-title");
+    this.bindDraft(contentInput, "quality-content");
     const status = card.createDiv({ cls: "qj-muted qj-quality-status" });
     extract.addEventListener("click", async () => {
       const url = linkInput.value.trim();
@@ -379,6 +412,8 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         const result = await this.plugin.extractQualityContent(url);
         titleInput.value = result.title;
         contentInput.value = result.content;
+        this.drafts.set("quality-title", titleInput.value);
+        this.drafts.set("quality-content", contentInput.value);
         status.setText("\u63D0\u53D6\u5B8C\u6210\uFF0C\u53EF\u7EE7\u7EED\u7F16\u8F91\u540E\u4FDD\u5B58");
       } catch (error) {
         console.error("\u6E05\u7B80\u9996\u9875\u63D0\u53D6\u5185\u5BB9\u5931\u8D25", error);
