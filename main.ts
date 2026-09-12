@@ -151,6 +151,7 @@ class QingjianHomeView extends ItemView {
   plugin: QingjianHomePlugin;
   private taskFilter: "all" | Priority = "all";
   private showCompletedTasks = false;
+  private drafts = new Map<string, string>();
 
   constructor(leaf: WorkspaceLeaf, plugin: QingjianHomePlugin) {
     super(leaf);
@@ -222,12 +223,33 @@ class QingjianHomeView extends ItemView {
     return card;
   }
 
+  private bindDraft(
+    element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+    key: string,
+    fallback = ""
+  ): void {
+    element.value = this.drafts.get(key) ?? fallback;
+    const remember = (): void => {
+      this.drafts.set(key, element.value);
+    };
+    element.addEventListener("input", remember);
+    element.addEventListener("change", remember);
+  }
+
+  private clearDraft(...keys: string[]): void {
+    keys.forEach((key) => this.drafts.delete(key));
+  }
+
   private renderTasks(parent: HTMLElement): void {
     const activeCount = this.plugin.vaultTasks.filter((task) => !task.completed).length;
     const card = this.card(parent, "待办清单", `${activeCount} 项未完成`);
     const form = card.createDiv({ cls: "qj-entry-row" });
     const priorityButton = form.createEl("button", { text: "急", cls: "qj-priority qj-urgent" });
-    priorityButton.dataset.priority = "urgent";
+    const taskPriority = this.drafts.get("task-priority") === "later" ? "later" : "urgent";
+    priorityButton.dataset.priority = taskPriority;
+    priorityButton.setText(taskPriority === "urgent" ? "急" : "缓");
+    priorityButton.toggleClass("qj-urgent", taskPriority === "urgent");
+    priorityButton.toggleClass("qj-later", taskPriority === "later");
     priorityButton.setAttr("aria-label", "点击切换急缓");
     priorityButton.addEventListener("click", () => {
       const next = priorityButton.dataset.priority === "urgent" ? "later" : "urgent";
@@ -235,12 +257,15 @@ class QingjianHomeView extends ItemView {
       priorityButton.setText(next === "urgent" ? "急" : "缓");
       priorityButton.toggleClass("qj-urgent", next === "urgent");
       priorityButton.toggleClass("qj-later", next === "later");
+      this.drafts.set("task-priority", next);
     });
     const input = form.createEl("input", { type: "text", placeholder: "添加一项待办…" });
+    this.bindDraft(input, "task-text");
     const add = form.createEl("button", { text: "添加", cls: "qj-primary" });
     const submit = async (): Promise<void> => {
       const text = input.value.trim();
       if (!text) return;
+      this.clearDraft("task-text");
       await this.plugin.addTask(text, priorityButton.dataset.priority === "later" ? "later" : "urgent");
     };
     add.addEventListener("click", () => void submit());
@@ -316,6 +341,8 @@ class QingjianHomeView extends ItemView {
       cls: "qj-moment-title"
     });
     const textarea = card.createEl("textarea", { placeholder: "此刻在想什么？", cls: "qj-moment-input" });
+    this.bindDraft(titleInput, "moment-title");
+    this.bindDraft(textarea, "moment-text");
     const imageRow = card.createDiv({ cls: "qj-moment-image-row" });
     const imageInput = imageRow.createEl("input", { type: "file", cls: "qj-moment-image-input" });
     imageInput.accept = "image/*";
@@ -330,6 +357,7 @@ class QingjianHomeView extends ItemView {
       try {
         const links = await this.plugin.saveMomentImages(files);
         textarea.value = `${textarea.value.trimEnd()}${textarea.value.trim() ? "\n\n" : ""}${links.join("\n")}`;
+        this.drafts.set("moment-text", textarea.value);
         new Notice(`已添加 ${links.length} 张图片`);
       } catch (error) {
         console.error("清简首页保存图片失败", error);
@@ -345,10 +373,12 @@ class QingjianHomeView extends ItemView {
       placeholder: "归档笔记路径",
       value: this.plugin.data.settings.defaultArchivePath
     });
+    this.bindDraft(pathInput, "moment-path", this.plugin.data.settings.defaultArchivePath);
     const choose = controls.createEl("button", { text: "选择" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
         pathInput.value = file.path;
+        this.drafts.set("moment-path", pathInput.value);
       }).open();
     });
     const save = controls.createEl("button", { text: "记下", cls: "qj-primary" });
@@ -362,6 +392,7 @@ class QingjianHomeView extends ItemView {
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
       });
+      this.clearDraft("moment-title", "moment-text", "moment-path");
       await this.plugin.persist();
     });
 
@@ -389,13 +420,16 @@ class QingjianHomeView extends ItemView {
     const pending = this.plugin.data.reminders.filter((reminder) => !reminder.completed);
     const card = this.card(parent, "定时提醒", `${pending.length} 项`);
     const textInput = card.createEl("input", { type: "text", placeholder: "提醒内容…" });
+    this.bindDraft(textInput, "reminder-text");
     const timeRow = card.createDiv({ cls: "qj-entry-row qj-reminder-form" });
     const timeInput = timeRow.createEl("input", { type: "datetime-local" });
     timeInput.value = toDateTimeLocal(new Date(Date.now() + 3_600_000));
+    this.bindDraft(timeInput, "reminder-time", timeInput.value);
     const repeat = timeRow.createEl("select");
     repeat.createEl("option", { text: "不重复", value: "none" });
     repeat.createEl("option", { text: "每天", value: "daily" });
     repeat.createEl("option", { text: "每周", value: "weekly" });
+    this.bindDraft(repeat, "reminder-repeat", "none");
     const add = timeRow.createEl("button", { text: "添加", cls: "qj-primary" });
     add.addEventListener("click", async () => {
       const text = textInput.value.trim();
@@ -405,6 +439,7 @@ class QingjianHomeView extends ItemView {
         return;
       }
       this.plugin.data.reminders.push({ id: uid(), text, dueAt, repeat: repeat.value as Repeat, completed: false });
+      this.clearDraft("reminder-text", "reminder-time", "reminder-repeat");
       await this.plugin.persist();
     });
 
@@ -454,6 +489,9 @@ class QingjianHomeView extends ItemView {
       placeholder: "提取结果会显示在这里；没有链接时可直接粘贴内容…",
       cls: "qj-quality-input"
     });
+    this.bindDraft(linkInput, "quality-url");
+    this.bindDraft(titleInput, "quality-title");
+    this.bindDraft(contentInput, "quality-content");
     const status = card.createDiv({ cls: "qj-muted qj-quality-status" });
 
     extract.addEventListener("click", async () => {
@@ -469,6 +507,8 @@ class QingjianHomeView extends ItemView {
         const result = await this.plugin.extractQualityContent(url);
         titleInput.value = result.title;
         contentInput.value = result.content;
+        this.drafts.set("quality-title", titleInput.value);
+        this.drafts.set("quality-content", contentInput.value);
         status.setText("提取完成，可继续编辑后保存");
       } catch (error) {
         console.error("清简首页提取内容失败", error);
