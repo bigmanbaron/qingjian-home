@@ -29,13 +29,16 @@ var DEFAULT_DATA = {
   tasks: [],
   moments: [],
   reminders: [],
+  rssFeeds: [],
+  rssArticles: [],
   settings: {
     openOnStartup: true,
     defaultArchivePath: "\u6BCF\u65E5\u77AC\u95F4.md",
     dailyNotesFolder: "\u65E5\u8BB0",
     taskInboxPath: "\u5F85\u529E\u6536\u96C6.md",
     completedTasksPath: "10_\u5DF2\u5B8C\u6210\u5F85\u529E/\u5DF2\u5B8C\u6210\u5F85\u529E.md",
-    qualityContentFolder: "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6"
+    qualityContentFolder: "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6",
+    rssFavoritesFolder: "12_RSS\u6536\u85CF"
   }
 };
 function uid() {
@@ -84,6 +87,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     super(leaf);
     this.taskFilter = "all";
     this.showCompletedTasks = false;
+    this.drafts = /* @__PURE__ */ new Map();
     this.plugin = plugin;
   }
   getViewType() {
@@ -103,6 +107,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     root.empty();
     root.addClass("qingjian-home");
     this.renderHeader(root);
+    this.renderRss(root);
     const grid = root.createDiv({ cls: "qj-grid" });
     const main = grid.createDiv({ cls: "qj-column qj-column-main" });
     const side = grid.createDiv({ cls: "qj-column qj-column-side" });
@@ -142,12 +147,87 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     if (subtitle) text.createEl("span", { text: subtitle });
     return card;
   }
+  renderRss(parent) {
+    const unreadCount = this.plugin.data.rssArticles.filter((article) => !article.read).length;
+    const card = this.card(parent, "RSS \u9605\u8BFB", `${unreadCount} \u7BC7\u672A\u8BFB`);
+    card.addClass("qj-rss-card");
+    const addRow = card.createDiv({ cls: "qj-entry-row qj-rss-add" });
+    const feedInput = addRow.createEl("input", { type: "url", placeholder: "\u7C98\u8D34 RSS / Atom \u8BA2\u9605\u5730\u5740\u2026" });
+    this.bindDraft(feedInput, "rss-feed-url");
+    const addButton = addRow.createEl("button", { text: "\u8BA2\u9605", cls: "qj-primary" });
+    addButton.addEventListener("click", async () => {
+      const url = feedInput.value.trim();
+      if (!url) return;
+      addButton.disabled = true;
+      addButton.setText("\u8BFB\u53D6\u4E2D\u2026");
+      try {
+        await this.plugin.addRssFeed(url);
+        this.clearDraft("rss-feed-url");
+      } finally {
+        addButton.disabled = false;
+        addButton.setText("\u8BA2\u9605");
+      }
+    });
+    const toolbar = card.createDiv({ cls: "qj-rss-toolbar" });
+    const feeds = toolbar.createDiv({ cls: "qj-rss-feeds" });
+    if (!this.plugin.data.rssFeeds.length) feeds.createSpan({ text: "\u5C1A\u672A\u6DFB\u52A0\u8BA2\u9605\u6E90", cls: "qj-muted" });
+    this.plugin.data.rssFeeds.forEach((feed) => {
+      const chip = feeds.createDiv({ cls: "qj-rss-feed-chip" });
+      chip.createSpan({ text: feed.title });
+      const remove = chip.createEl("button", { text: "\xD7" });
+      remove.setAttr("aria-label", `\u5220\u9664\u8BA2\u9605 ${feed.title}`);
+      remove.addEventListener("click", () => void this.plugin.removeRssFeed(feed.id));
+    });
+    const refresh = toolbar.createEl("button", { text: "\u5237\u65B0\u5168\u90E8" });
+    refresh.disabled = !this.plugin.data.rssFeeds.length;
+    refresh.addEventListener("click", async () => {
+      refresh.disabled = true;
+      refresh.setText("\u5237\u65B0\u4E2D\u2026");
+      await this.plugin.refreshAllRssFeeds();
+    });
+    const list = card.createDiv({ cls: "qj-rss-list" });
+    const articles = this.plugin.data.rssArticles.slice(0, 20);
+    if (!articles.length) this.emptyState(list, "\u8BA2\u9605\u540E\uFF0C\u6700\u65B0\u6587\u7AE0\u4F1A\u663E\u793A\u5728\u8FD9\u91CC");
+    articles.forEach((article) => {
+      const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
+      const body = row.createDiv({ cls: "qj-rss-body" });
+      const title = body.createEl("button", { text: article.title, cls: "qj-rss-title" });
+      title.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      body.createDiv({
+        text: `${article.feedTitle} \xB7 ${displayTime(article.publishedAt)}`,
+        cls: "qj-muted qj-rss-meta"
+      });
+      if (article.summary) body.createDiv({ text: article.summary, cls: "qj-rss-summary" });
+      const actions = row.createDiv({ cls: "qj-inline-actions qj-rss-actions" });
+      const read = actions.createEl("button", { text: article.read ? "\u6807\u4E3A\u672A\u8BFB" : "\u6807\u4E3A\u5DF2\u8BFB" });
+      read.addEventListener("click", () => void this.plugin.toggleRssRead(article));
+      const save = actions.createEl("button", { text: article.saved ? "\u5DF2\u6536\u85CF" : "\u6536\u85CF" });
+      save.disabled = article.saved;
+      save.addEventListener("click", () => void this.plugin.saveRssArticle(article));
+    });
+  }
+  bindDraft(element, key, fallback = "") {
+    var _a;
+    element.value = (_a = this.drafts.get(key)) != null ? _a : fallback;
+    const remember = () => {
+      this.drafts.set(key, element.value);
+    };
+    element.addEventListener("input", remember);
+    element.addEventListener("change", remember);
+  }
+  clearDraft(...keys) {
+    keys.forEach((key) => this.drafts.delete(key));
+  }
   renderTasks(parent) {
     const activeCount = this.plugin.vaultTasks.filter((task) => !task.completed).length;
     const card = this.card(parent, "\u5F85\u529E\u6E05\u5355", `${activeCount} \u9879\u672A\u5B8C\u6210`);
     const form = card.createDiv({ cls: "qj-entry-row" });
     const priorityButton = form.createEl("button", { text: "\u6025", cls: "qj-priority qj-urgent" });
-    priorityButton.dataset.priority = "urgent";
+    const taskPriority = this.drafts.get("task-priority") === "later" ? "later" : "urgent";
+    priorityButton.dataset.priority = taskPriority;
+    priorityButton.setText(taskPriority === "urgent" ? "\u6025" : "\u7F13");
+    priorityButton.toggleClass("qj-urgent", taskPriority === "urgent");
+    priorityButton.toggleClass("qj-later", taskPriority === "later");
     priorityButton.setAttr("aria-label", "\u70B9\u51FB\u5207\u6362\u6025\u7F13");
     priorityButton.addEventListener("click", () => {
       const next = priorityButton.dataset.priority === "urgent" ? "later" : "urgent";
@@ -155,12 +235,15 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       priorityButton.setText(next === "urgent" ? "\u6025" : "\u7F13");
       priorityButton.toggleClass("qj-urgent", next === "urgent");
       priorityButton.toggleClass("qj-later", next === "later");
+      this.drafts.set("task-priority", next);
     });
     const input = form.createEl("input", { type: "text", placeholder: "\u6DFB\u52A0\u4E00\u9879\u5F85\u529E\u2026" });
+    this.bindDraft(input, "task-text");
     const add = form.createEl("button", { text: "\u6DFB\u52A0", cls: "qj-primary" });
     const submit = async () => {
       const text = input.value.trim();
       if (!text) return;
+      this.clearDraft("task-text");
       await this.plugin.addTask(text, priorityButton.dataset.priority === "later" ? "later" : "urgent");
     };
     add.addEventListener("click", () => void submit());
@@ -225,11 +308,38 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   }
   renderMoments(parent) {
     const card = this.card(parent, "\u6BCF\u65E5\u77AC\u95F4", "\u5148\u8BB0\u4E0B\uFF0C\u518D\u5F52\u6863");
-    const textarea = card.createEl("textarea", { placeholder: "\u6B64\u523B\u5728\u60F3\u4EC0\u4E48\uFF1F", cls: "qj-moment-input" });
     const titleInput = card.createEl("input", {
       type: "text",
       placeholder: "\u6807\u9898\u6216\u5173\u952E\u8BCD\uFF08\u7528\u4E8E\u4FDD\u5B58\u548C\u67E5\u627E\uFF09",
       cls: "qj-moment-title"
+    });
+    const textarea = card.createEl("textarea", { placeholder: "\u6B64\u523B\u5728\u60F3\u4EC0\u4E48\uFF1F", cls: "qj-moment-input" });
+    this.bindDraft(titleInput, "moment-title");
+    this.bindDraft(textarea, "moment-text");
+    const imageRow = card.createDiv({ cls: "qj-moment-image-row" });
+    const imageInput = imageRow.createEl("input", { type: "file", cls: "qj-moment-image-input" });
+    imageInput.accept = "image/*";
+    imageInput.multiple = true;
+    const addImage = imageRow.createEl("button", { text: "\u6DFB\u52A0\u56FE\u7247" });
+    imageRow.createSpan({ text: "\u81EA\u52A8\u538B\u7F29\u540E\u4FDD\u5B58", cls: "qj-muted" });
+    addImage.addEventListener("click", () => imageInput.click());
+    imageInput.addEventListener("change", async () => {
+      var _a;
+      const files = Array.from((_a = imageInput.files) != null ? _a : []);
+      if (!files.length) return;
+      addImage.disabled = true;
+      try {
+        const links = await this.plugin.saveMomentImages(files);
+        textarea.value = `${textarea.value.trimEnd()}${textarea.value.trim() ? "\n\n" : ""}${links.join("\n")}`;
+        this.drafts.set("moment-text", textarea.value);
+        new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${links.length} \u5F20\u56FE\u7247`);
+      } catch (error) {
+        console.error("\u6E05\u7B80\u9996\u9875\u4FDD\u5B58\u56FE\u7247\u5931\u8D25", error);
+        new import_obsidian.Notice("\u56FE\u7247\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+      } finally {
+        imageInput.value = "";
+        addImage.disabled = false;
+      }
     });
     const controls = card.createDiv({ cls: "qj-entry-row" });
     const pathInput = controls.createEl("input", {
@@ -237,10 +347,12 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       placeholder: "\u5F52\u6863\u7B14\u8BB0\u8DEF\u5F84",
       value: this.plugin.data.settings.defaultArchivePath
     });
+    this.bindDraft(pathInput, "moment-path", this.plugin.data.settings.defaultArchivePath);
     const choose = controls.createEl("button", { text: "\u9009\u62E9" });
     choose.addEventListener("click", () => {
       new NotePicker(this.app, (file) => {
         pathInput.value = file.path;
+        this.drafts.set("moment-path", pathInput.value);
       }).open();
     });
     const save = controls.createEl("button", { text: "\u8BB0\u4E0B", cls: "qj-primary" });
@@ -254,6 +366,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         createdAt: Date.now(),
         targetPath: pathInput.value.trim() || this.plugin.data.settings.defaultArchivePath
       });
+      this.clearDraft("moment-title", "moment-text", "moment-path");
       await this.plugin.persist();
     });
     const list = card.createDiv({ cls: "qj-list" });
@@ -279,13 +392,16 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const pending = this.plugin.data.reminders.filter((reminder) => !reminder.completed);
     const card = this.card(parent, "\u5B9A\u65F6\u63D0\u9192", `${pending.length} \u9879`);
     const textInput = card.createEl("input", { type: "text", placeholder: "\u63D0\u9192\u5185\u5BB9\u2026" });
+    this.bindDraft(textInput, "reminder-text");
     const timeRow = card.createDiv({ cls: "qj-entry-row qj-reminder-form" });
     const timeInput = timeRow.createEl("input", { type: "datetime-local" });
     timeInput.value = toDateTimeLocal(new Date(Date.now() + 36e5));
+    this.bindDraft(timeInput, "reminder-time", timeInput.value);
     const repeat = timeRow.createEl("select");
     repeat.createEl("option", { text: "\u4E0D\u91CD\u590D", value: "none" });
     repeat.createEl("option", { text: "\u6BCF\u5929", value: "daily" });
     repeat.createEl("option", { text: "\u6BCF\u5468", value: "weekly" });
+    this.bindDraft(repeat, "reminder-repeat", "none");
     const add = timeRow.createEl("button", { text: "\u6DFB\u52A0", cls: "qj-primary" });
     add.addEventListener("click", async () => {
       const text = textInput.value.trim();
@@ -295,6 +411,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         return;
       }
       this.plugin.data.reminders.push({ id: uid(), text, dueAt, repeat: repeat.value, completed: false });
+      this.clearDraft("reminder-text", "reminder-time", "reminder-repeat");
       await this.plugin.persist();
     });
     const list = card.createDiv({ cls: "qj-list" });
@@ -341,6 +458,9 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       placeholder: "\u63D0\u53D6\u7ED3\u679C\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\uFF1B\u6CA1\u6709\u94FE\u63A5\u65F6\u53EF\u76F4\u63A5\u7C98\u8D34\u5185\u5BB9\u2026",
       cls: "qj-quality-input"
     });
+    this.bindDraft(linkInput, "quality-url");
+    this.bindDraft(titleInput, "quality-title");
+    this.bindDraft(contentInput, "quality-content");
     const status = card.createDiv({ cls: "qj-muted qj-quality-status" });
     extract.addEventListener("click", async () => {
       const url = linkInput.value.trim();
@@ -355,6 +475,8 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         const result = await this.plugin.extractQualityContent(url);
         titleInput.value = result.title;
         contentInput.value = result.content;
+        this.drafts.set("quality-title", titleInput.value);
+        this.drafts.set("quality-content", contentInput.value);
         status.setText("\u63D0\u53D6\u5B8C\u6210\uFF0C\u53EF\u7EE7\u7EED\u7F16\u8F91\u540E\u4FDD\u5B58");
       } catch (error) {
         console.error("\u6E05\u7B80\u9996\u9875\u63D0\u53D6\u5185\u5BB9\u5931\u8D25", error);
@@ -425,6 +547,11 @@ var QingjianSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.data.settings.qualityContentFolder = value.trim() || "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6";
       await this.plugin.persist();
     }));
+    new import_obsidian.Setting(containerEl).setName("RSS \u6536\u85CF\u6587\u4EF6\u5939").setDesc("\u9996\u9875\u6536\u85CF\u7684 RSS \u6587\u7AE0\u4F1A\u4FDD\u5B58\u5230\u8FD9\u91CC\u3002").addText((text) => text.setValue(this.plugin.data.settings.rssFavoritesFolder).onChange(async (value) => {
+      this.plugin.data.settings.rssFavoritesFolder = value.trim() || "12_RSS\u6536\u85CF";
+      await this.plugin.ensureRssFavoritesFolder();
+      await this.plugin.persist();
+    }));
     new import_obsidian.Setting(containerEl).setName("\u65E5\u8BB0\u6587\u4EF6\u5939").setDesc("\u65E5\u8BB0\u6587\u4EF6\u540D\u56FA\u5B9A\u4E3A YYYY-MM-DD.md\uFF1B\u7559\u7A7A\u5219\u4FDD\u5B58\u5728\u5E93\u6839\u76EE\u5F55\u3002").addText((text) => text.setValue(this.plugin.data.settings.dailyNotesFolder).onChange(async (value) => {
       this.plugin.data.settings.dailyNotesFolder = value.trim();
       await this.plugin.persist();
@@ -439,14 +566,16 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.completedTasks = [];
   }
   async onload() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f, _g;
     const saved = await this.loadData();
     this.data = {
       schemaVersion: (_a = saved == null ? void 0 : saved.schemaVersion) != null ? _a : DEFAULT_DATA.schemaVersion,
       tasks: (_b = saved == null ? void 0 : saved.tasks) != null ? _b : [],
       moments: (_c = saved == null ? void 0 : saved.moments) != null ? _c : [],
       reminders: (_d = saved == null ? void 0 : saved.reminders) != null ? _d : [],
-      settings: { ...DEFAULT_DATA.settings, ...(_e = saved == null ? void 0 : saved.settings) != null ? _e : {} }
+      rssFeeds: (_e = saved == null ? void 0 : saved.rssFeeds) != null ? _e : [],
+      rssArticles: (_f = saved == null ? void 0 : saved.rssArticles) != null ? _f : [],
+      settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
     this.addRibbonIcon("home", "\u6253\u5F00\u6E05\u7B80\u9996\u9875", () => void this.openHome());
@@ -476,6 +605,145 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       const view = leaf.view;
       if (view instanceof QingjianHomeView) view.render();
     });
+  }
+  async addRssFeed(rawUrl) {
+    let url;
+    try {
+      url = new URL(rawUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol");
+    } catch (e) {
+      new import_obsidian.Notice("\u8BF7\u8F93\u5165\u6709\u6548\u7684 RSS \u5730\u5740");
+      return;
+    }
+    if (this.data.rssFeeds.some((feed) => feed.url === url.toString())) {
+      new import_obsidian.Notice("\u8FD9\u4E2A\u8BA2\u9605\u6E90\u5DF2\u7ECF\u6DFB\u52A0");
+      return;
+    }
+    try {
+      const parsed = await this.fetchRssFeed(url.toString());
+      const feed = { id: uid(), title: parsed.title || url.hostname, url: url.toString(), lastUpdatedAt: Date.now() };
+      this.data.rssFeeds.unshift(feed);
+      this.mergeRssArticles(feed, parsed.articles);
+      await this.persist();
+      new import_obsidian.Notice(`\u5DF2\u8BA2\u9605 ${feed.title}`);
+    } catch (error) {
+      console.error("\u6E05\u7B80\u9996\u9875\u8BFB\u53D6 RSS \u5931\u8D25", error);
+      new import_obsidian.Notice("\u65E0\u6CD5\u8BFB\u53D6\u8BE5\u8BA2\u9605\u6E90\uFF0C\u8BF7\u68C0\u67E5\u5730\u5740");
+    }
+  }
+  async removeRssFeed(feedId) {
+    this.data.rssFeeds = this.data.rssFeeds.filter((feed) => feed.id !== feedId);
+    this.data.rssArticles = this.data.rssArticles.filter((article) => article.feedId !== feedId);
+    await this.persist();
+  }
+  async refreshAllRssFeeds() {
+    let success = 0;
+    for (const feed of this.data.rssFeeds) {
+      try {
+        const parsed = await this.fetchRssFeed(feed.url);
+        feed.title = parsed.title || feed.title;
+        feed.lastUpdatedAt = Date.now();
+        this.mergeRssArticles(feed, parsed.articles);
+        success += 1;
+      } catch (error) {
+        console.error(`\u6E05\u7B80\u9996\u9875\u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
+      }
+    }
+    await this.persist();
+    new import_obsidian.Notice(success === this.data.rssFeeds.length ? "RSS \u5DF2\u5237\u65B0" : `\u5DF2\u5237\u65B0 ${success}/${this.data.rssFeeds.length} \u4E2A\u8BA2\u9605\u6E90`);
+  }
+  async toggleRssRead(article) {
+    article.read = !article.read;
+    await this.persist();
+  }
+  async openRssArticle(article) {
+    article.read = true;
+    await this.saveData(this.data);
+    window.open(article.link, "_blank", "noopener,noreferrer");
+    this.refreshViews();
+  }
+  async saveRssArticle(article) {
+    if (article.saved) return;
+    let content = `> \u6765\u6E90\uFF1A[${article.feedTitle}](${article.link})
+
+${article.summary}`.trim();
+    try {
+      const extracted = await this.extractQualityContent(article.link);
+      content = extracted.content;
+    } catch (error) {
+      console.warn("\u6E05\u7B80\u9996\u9875\u65E0\u6CD5\u63D0\u53D6 RSS \u539F\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u6458\u8981", error);
+    }
+    const folder = (0, import_obsidian.normalizePath)(this.data.settings.rssFavoritesFolder.trim() || "12_RSS\u6536\u85CF");
+    const safeTitle = article.title.replace(/[\\/:*?"<>|]/g, "-").trim() || "RSS\u6587\u7AE0";
+    let path = this.asMarkdownPath(`${folder}/${dateKey(new Date(article.publishedAt))}-${safeTitle}`);
+    if (this.app.vault.getAbstractFileByPath(path)) path = this.asMarkdownPath(`${folder}/${dateKey(/* @__PURE__ */ new Date())}-${safeTitle}-${Date.now()}`);
+    const file = await this.getOrCreateFile(path, `# ${article.title}
+
+${content}
+`);
+    article.saved = true;
+    article.read = true;
+    await this.persist();
+    new import_obsidian.Notice(`\u5DF2\u6536\u85CF\u5230 ${path}`);
+    await this.app.workspace.getLeaf(false).openFile(file);
+  }
+  async ensureRssFavoritesFolder() {
+    const folder = (0, import_obsidian.normalizePath)(this.data.settings.rssFavoritesFolder.trim() || "12_RSS\u6536\u85CF");
+    let current = "";
+    for (const part of folder.split("/").filter(Boolean)) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
+  }
+  async fetchRssFeed(url) {
+    var _a, _b;
+    const response = await (0, import_obsidian.requestUrl)({ url, method: "GET" });
+    const document2 = new DOMParser().parseFromString(response.text, "application/xml");
+    if (document2.querySelector("parsererror")) throw new Error("invalid feed xml");
+    const channel = document2.querySelector("channel");
+    const feedTitle = (((_a = channel == null ? void 0 : channel.querySelector("title")) == null ? void 0 : _a.textContent) || ((_b = document2.querySelector("feed > title")) == null ? void 0 : _b.textContent) || "").trim();
+    const nodes = Array.from(document2.querySelectorAll("item, entry"));
+    const articles = nodes.map((node) => {
+      var _a2, _b2, _c, _d, _e, _f, _g;
+      const title = (((_a2 = node.querySelector("title")) == null ? void 0 : _a2.textContent) || "\u672A\u547D\u540D\u6587\u7AE0").trim();
+      const atomLink = Array.from(node.querySelectorAll("link")).find((link2) => !link2.getAttribute("rel") || link2.getAttribute("rel") === "alternate");
+      const rawLink = ((atomLink == null ? void 0 : atomLink.getAttribute("href")) || ((_b2 = node.querySelector("link")) == null ? void 0 : _b2.textContent) || ((_c = node.querySelector("guid")) == null ? void 0 : _c.textContent) || "").trim();
+      let link = "";
+      try {
+        link = new URL(rawLink, url).toString();
+      } catch (e) {
+        link = "";
+      }
+      const dateText = ((_e = (_d = node.querySelector("pubDate, published, updated, date")) == null ? void 0 : _d.textContent) == null ? void 0 : _e.trim()) || "";
+      const parsedDate = Date.parse(dateText);
+      const rawSummary = ((_f = node.getElementsByTagName("content:encoded")[0]) == null ? void 0 : _f.textContent) || ((_g = node.querySelector("content, description, summary")) == null ? void 0 : _g.textContent) || "";
+      const html = new DOMParser().parseFromString(rawSummary, "text/html");
+      const summary = (html.body.textContent || "").replace(/\s+/g, " ").trim().slice(0, 240);
+      return { title, link, publishedAt: Number.isNaN(parsedDate) ? Date.now() : parsedDate, summary };
+    }).filter((article) => article.link);
+    if (!nodes.length) throw new Error("feed has no articles");
+    return { title: feedTitle, articles };
+  }
+  mergeRssArticles(feed, incoming) {
+    incoming.forEach((entry) => {
+      const existing = this.data.rssArticles.find((article) => article.link === entry.link);
+      if (existing) {
+        existing.title = entry.title;
+        existing.summary = entry.summary;
+        existing.feedTitle = feed.title;
+        if (entry.publishedAt) existing.publishedAt = entry.publishedAt;
+        return;
+      }
+      this.data.rssArticles.push({
+        ...entry,
+        id: uid(),
+        feedId: feed.id,
+        feedTitle: feed.title,
+        read: false,
+        saved: false
+      });
+    });
+    this.data.rssArticles = this.data.rssArticles.sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 300);
   }
   async addTask(text, priority) {
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
@@ -534,41 +802,100 @@ ${moment.text.trim()}
 `);
     } else {
       const safeTitle = title.replace(/[\\/:*?"<>|]/g, "-").trim() || "\u77AC\u95F4";
-      const stamp = `${date}-${String(created.getHours()).padStart(2, "0")}${String(created.getMinutes()).padStart(2, "0")}${String(created.getSeconds()).padStart(2, "0")}`;
-      path = this.asMarkdownPath(`${target}/${stamp}-${safeTitle}`);
-      await this.getOrCreateFile(path, `# ${title}
+      path = this.asMarkdownPath(`${target}/${date}-${safeTitle}`);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof import_obsidian.TFile) {
+        await this.app.vault.append(existing, `
+
+---
 
 \u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
 
 ${moment.text.trim()}
 `);
+      } else {
+        await this.getOrCreateFile(path, `# ${title}
+
+\u521B\u5EFA\u65F6\u95F4\uFF1A${date} ${time}
+
+${moment.text.trim()}
+`);
+      }
     }
     this.data.moments = this.data.moments.filter((entry) => entry.id !== moment.id);
     await this.persist();
     new import_obsidian.Notice(`\u5DF2\u5F52\u6863\u5230 ${path}`);
+  }
+  async saveMomentImages(files) {
+    const now = /* @__PURE__ */ new Date();
+    const folder = (0, import_obsidian.normalizePath)(`_assets/\u6BCF\u65E5\u77AC\u95F4/${dateKey(now)}`);
+    let current = "";
+    for (const part of folder.split("/")) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
+    const links = [];
+    for (const [index, file] of files.entries()) {
+      const safeName = file.name.replace(/[\\/:*?"<>|]/g, "-").trim() || `\u56FE\u7247-${index + 1}`;
+      const dot = safeName.lastIndexOf(".");
+      const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+      const originalExtension = dot > 0 ? safeName.slice(dot) : ".jpg";
+      const compressed = await this.compressMomentImage(file, originalExtension);
+      const stamp = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      let path = (0, import_obsidian.normalizePath)(`${folder}/${stamp}-${base}${compressed.extension}`);
+      let suffix = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = (0, import_obsidian.normalizePath)(`${folder}/${stamp}-${base}-${suffix}${compressed.extension}`);
+        suffix += 1;
+      }
+      await this.app.vault.createBinary(path, compressed.data);
+      links.push(`![[${path}]]`);
+    }
+    return links;
+  }
+  async compressMomentImage(file, originalExtension) {
+    const original = await file.arrayBuffer();
+    if (!file.type.startsWith("image/")) return { data: original, extension: originalExtension };
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("\u65E0\u6CD5\u8BFB\u53D6\u56FE\u7247"));
+        element.src = objectUrl;
+      });
+      const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return { data: original, extension: originalExtension };
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const targetSize = file.size * 0.4;
+      let best = null;
+      for (const quality of [0.92, 0.88, 0.84, 0.8, 0.76, 0.72]) {
+        const candidate = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!candidate || candidate.size >= file.size) continue;
+        if (!best || Math.abs(candidate.size - targetSize) < Math.abs(best.size - targetSize)) best = candidate;
+      }
+      if (!best) return { data: original, extension: originalExtension };
+      return { data: await best.arrayBuffer(), extension: ".jpg" };
+    } catch (e) {
+      return { data: original, extension: originalExtension };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
   async extractQualityContent(rawUrl) {
     var _a, _b;
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u534F\u8BAE");
     const response = await (0, import_obsidian.requestUrl)({ url: url.toString(), method: "GET" });
-    const document = new DOMParser().parseFromString(response.text, "text/html");
-    document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
-    document.querySelectorAll("img").forEach((image) => {
-      const source = image.getAttribute("src") || image.getAttribute("data-src") || image.getAttribute("data-original");
-      if (!source) {
-        image.remove();
-        return;
-      }
-      try {
-        image.setAttribute("src", new URL(source, url).toString());
-      } catch (e) {
-        image.remove();
-      }
-      image.removeAttribute("srcset");
-      image.removeAttribute("data-src");
-    });
-    document.querySelectorAll("a[href]").forEach((link) => {
+    const document2 = new DOMParser().parseFromString(response.text, "text/html");
+    document2.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
+    document2.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href) return;
       try {
@@ -577,10 +904,38 @@ ${moment.text.trim()}
         link.removeAttribute("href");
       }
     });
-    const article = document.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document.body;
+    const article = document2.querySelector("article, main, [role='main'], .post-content, .entry-content, .article-content") || document2.body;
     if (!article) throw new Error("\u7F51\u9875\u6CA1\u6709\u53EF\u63D0\u53D6\u5185\u5BB9");
-    const title = ((_b = (_a = document.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
-    const markdown = (0, import_obsidian.htmlToMarkdown)(article).replace(/\n{3,}/g, "\n\n").trim();
+    const extractedImages = [];
+    article.querySelectorAll("img").forEach((image, index) => {
+      var _a2, _b2, _c, _d;
+      const srcset = image.getAttribute("data-srcset") || image.getAttribute("srcset") || ((_b2 = (_a2 = image.closest("picture")) == null ? void 0 : _a2.querySelector("source[data-srcset], source[srcset]")) == null ? void 0 : _b2.getAttribute("data-srcset")) || ((_d = (_c = image.closest("picture")) == null ? void 0 : _c.querySelector("source[srcset]")) == null ? void 0 : _d.getAttribute("srcset"));
+      const srcsetSource = srcset == null ? void 0 : srcset.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean).pop();
+      const source = image.getAttribute("data-original") || image.getAttribute("data-lazy-src") || image.getAttribute("data-src") || srcsetSource || image.getAttribute("src");
+      if (!source || /^(data|blob):/i.test(source)) {
+        image.remove();
+        return;
+      }
+      try {
+        const absoluteSource = new URL(source, url).toString();
+        const alt = (image.getAttribute("alt") || image.getAttribute("title") || "\u56FE\u7247").replace(/[\\[\]]/g, "").trim() || "\u56FE\u7247";
+        const token = `QJEXTRACTEDIMAGE${index}TOKEN`;
+        extractedImages.push({ token, markdown: `![${alt}](<${absoluteSource}>)` });
+        image.replaceWith(document2.createTextNode(`
+
+${token}
+
+`));
+      } catch (e) {
+        image.remove();
+      }
+    });
+    const title = ((_b = (_a = document2.querySelector("meta[property='og:title']")) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || document2.title.trim() || "\u672A\u547D\u540D\u5185\u5BB9";
+    let markdown = (0, import_obsidian.htmlToMarkdown)(article);
+    extractedImages.forEach(({ token, markdown: imageMarkdown }) => {
+      markdown = markdown.split(token).join(imageMarkdown);
+    });
+    markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
     if (!markdown) throw new Error("\u7F51\u9875\u6B63\u6587\u4E3A\u7A7A");
     return {
       title,
@@ -638,6 +993,7 @@ ${content}
     if (changed) await this.persist();
   }
   async initializeHome() {
+    await this.ensureRssFavoritesFolder();
     await this.migrateLegacyTasks();
     await this.scanVaultTasks();
     if (this.data.settings.openOnStartup) await this.openHome();

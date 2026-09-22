@@ -62,6 +62,25 @@ interface HomeReminder {
   lastNotifiedAt?: number;
 }
 
+interface RssFeed {
+  id: string;
+  title: string;
+  url: string;
+  lastUpdatedAt?: number;
+}
+
+interface RssArticle {
+  id: string;
+  feedId: string;
+  feedTitle: string;
+  title: string;
+  link: string;
+  publishedAt: number;
+  summary: string;
+  read: boolean;
+  saved: boolean;
+}
+
 interface HomeSettings {
   openOnStartup: boolean;
   defaultArchivePath: string;
@@ -69,6 +88,7 @@ interface HomeSettings {
   taskInboxPath: string;
   completedTasksPath: string;
   qualityContentFolder: string;
+  rssFavoritesFolder: string;
 }
 
 interface HomeData {
@@ -76,6 +96,8 @@ interface HomeData {
   tasks: HomeTask[];
   moments: Moment[];
   reminders: HomeReminder[];
+  rssFeeds: RssFeed[];
+  rssArticles: RssArticle[];
   settings: HomeSettings;
 }
 
@@ -84,13 +106,16 @@ const DEFAULT_DATA: HomeData = {
   tasks: [],
   moments: [],
   reminders: [],
+  rssFeeds: [],
+  rssArticles: [],
   settings: {
     openOnStartup: true,
     defaultArchivePath: "每日瞬间.md",
     dailyNotesFolder: "日记",
     taskInboxPath: "待办收集.md",
     completedTasksPath: "10_已完成待办/已完成待办.md",
-    qualityContentFolder: "11_优质内容收集"
+    qualityContentFolder: "11_优质内容收集",
+    rssFavoritesFolder: "12_RSS收藏"
   }
 };
 
@@ -180,6 +205,7 @@ class QingjianHomeView extends ItemView {
     root.addClass("qingjian-home");
 
     this.renderHeader(root);
+    this.renderRss(root);
     const grid = root.createDiv({ cls: "qj-grid" });
     const main = grid.createDiv({ cls: "qj-column qj-column-main" });
     const side = grid.createDiv({ cls: "qj-column qj-column-side" });
@@ -221,6 +247,69 @@ class QingjianHomeView extends ItemView {
     text.createEl("h2", { text: title });
     if (subtitle) text.createEl("span", { text: subtitle });
     return card;
+  }
+
+  private renderRss(parent: HTMLElement): void {
+    const unreadCount = this.plugin.data.rssArticles.filter((article) => !article.read).length;
+    const card = this.card(parent, "RSS 阅读", `${unreadCount} 篇未读`);
+    card.addClass("qj-rss-card");
+
+    const addRow = card.createDiv({ cls: "qj-entry-row qj-rss-add" });
+    const feedInput = addRow.createEl("input", { type: "url", placeholder: "粘贴 RSS / Atom 订阅地址…" });
+    this.bindDraft(feedInput, "rss-feed-url");
+    const addButton = addRow.createEl("button", { text: "订阅", cls: "qj-primary" });
+    addButton.addEventListener("click", async () => {
+      const url = feedInput.value.trim();
+      if (!url) return;
+      addButton.disabled = true;
+      addButton.setText("读取中…");
+      try {
+        await this.plugin.addRssFeed(url);
+        this.clearDraft("rss-feed-url");
+      } finally {
+        addButton.disabled = false;
+        addButton.setText("订阅");
+      }
+    });
+
+    const toolbar = card.createDiv({ cls: "qj-rss-toolbar" });
+    const feeds = toolbar.createDiv({ cls: "qj-rss-feeds" });
+    if (!this.plugin.data.rssFeeds.length) feeds.createSpan({ text: "尚未添加订阅源", cls: "qj-muted" });
+    this.plugin.data.rssFeeds.forEach((feed) => {
+      const chip = feeds.createDiv({ cls: "qj-rss-feed-chip" });
+      chip.createSpan({ text: feed.title });
+      const remove = chip.createEl("button", { text: "×" });
+      remove.setAttr("aria-label", `删除订阅 ${feed.title}`);
+      remove.addEventListener("click", () => void this.plugin.removeRssFeed(feed.id));
+    });
+    const refresh = toolbar.createEl("button", { text: "刷新全部" });
+    refresh.disabled = !this.plugin.data.rssFeeds.length;
+    refresh.addEventListener("click", async () => {
+      refresh.disabled = true;
+      refresh.setText("刷新中…");
+      await this.plugin.refreshAllRssFeeds();
+    });
+
+    const list = card.createDiv({ cls: "qj-rss-list" });
+    const articles = this.plugin.data.rssArticles.slice(0, 20);
+    if (!articles.length) this.emptyState(list, "订阅后，最新文章会显示在这里");
+    articles.forEach((article) => {
+      const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
+      const body = row.createDiv({ cls: "qj-rss-body" });
+      const title = body.createEl("button", { text: article.title, cls: "qj-rss-title" });
+      title.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      body.createDiv({
+        text: `${article.feedTitle} · ${displayTime(article.publishedAt)}`,
+        cls: "qj-muted qj-rss-meta"
+      });
+      if (article.summary) body.createDiv({ text: article.summary, cls: "qj-rss-summary" });
+      const actions = row.createDiv({ cls: "qj-inline-actions qj-rss-actions" });
+      const read = actions.createEl("button", { text: article.read ? "标为未读" : "标为已读" });
+      read.addEventListener("click", () => void this.plugin.toggleRssRead(article));
+      const save = actions.createEl("button", { text: article.saved ? "已收藏" : "收藏" });
+      save.disabled = article.saved;
+      save.addEventListener("click", () => void this.plugin.saveRssArticle(article));
+    });
   }
 
   private bindDraft(
@@ -619,6 +708,17 @@ class QingjianSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName("RSS 收藏文件夹")
+      .setDesc("首页收藏的 RSS 文章会保存到这里。")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.rssFavoritesFolder)
+        .onChange(async (value) => {
+          this.plugin.data.settings.rssFavoritesFolder = value.trim() || "12_RSS收藏";
+          await this.plugin.ensureRssFavoritesFolder();
+          await this.plugin.persist();
+        }));
+
+    new Setting(containerEl)
       .setName("日记文件夹")
       .setDesc("日记文件名固定为 YYYY-MM-DD.md；留空则保存在库根目录。")
       .addText((text) => text
@@ -644,6 +744,8 @@ export default class QingjianHomePlugin extends Plugin {
       tasks: saved?.tasks ?? [],
       moments: saved?.moments ?? [],
       reminders: saved?.reminders ?? [],
+      rssFeeds: saved?.rssFeeds ?? [],
+      rssArticles: saved?.rssArticles ?? [],
       settings: { ...DEFAULT_DATA.settings, ...(saved?.settings ?? {}) }
     };
 
@@ -679,6 +781,154 @@ export default class QingjianHomePlugin extends Plugin {
       const view = leaf.view;
       if (view instanceof QingjianHomeView) view.render();
     });
+  }
+
+  async addRssFeed(rawUrl: string): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol");
+    } catch {
+      new Notice("请输入有效的 RSS 地址");
+      return;
+    }
+    if (this.data.rssFeeds.some((feed) => feed.url === url.toString())) {
+      new Notice("这个订阅源已经添加");
+      return;
+    }
+    try {
+      const parsed = await this.fetchRssFeed(url.toString());
+      const feed: RssFeed = { id: uid(), title: parsed.title || url.hostname, url: url.toString(), lastUpdatedAt: Date.now() };
+      this.data.rssFeeds.unshift(feed);
+      this.mergeRssArticles(feed, parsed.articles);
+      await this.persist();
+      new Notice(`已订阅 ${feed.title}`);
+    } catch (error) {
+      console.error("清简首页读取 RSS 失败", error);
+      new Notice("无法读取该订阅源，请检查地址");
+    }
+  }
+
+  async removeRssFeed(feedId: string): Promise<void> {
+    this.data.rssFeeds = this.data.rssFeeds.filter((feed) => feed.id !== feedId);
+    this.data.rssArticles = this.data.rssArticles.filter((article) => article.feedId !== feedId);
+    await this.persist();
+  }
+
+  async refreshAllRssFeeds(): Promise<void> {
+    let success = 0;
+    for (const feed of this.data.rssFeeds) {
+      try {
+        const parsed = await this.fetchRssFeed(feed.url);
+        feed.title = parsed.title || feed.title;
+        feed.lastUpdatedAt = Date.now();
+        this.mergeRssArticles(feed, parsed.articles);
+        success += 1;
+      } catch (error) {
+        console.error(`清简首页刷新 RSS 失败：${feed.url}`, error);
+      }
+    }
+    await this.persist();
+    new Notice(success === this.data.rssFeeds.length ? "RSS 已刷新" : `已刷新 ${success}/${this.data.rssFeeds.length} 个订阅源`);
+  }
+
+  async toggleRssRead(article: RssArticle): Promise<void> {
+    article.read = !article.read;
+    await this.persist();
+  }
+
+  async openRssArticle(article: RssArticle): Promise<void> {
+    article.read = true;
+    await this.saveData(this.data);
+    window.open(article.link, "_blank", "noopener,noreferrer");
+    this.refreshViews();
+  }
+
+  async saveRssArticle(article: RssArticle): Promise<void> {
+    if (article.saved) return;
+    let content = `> 来源：[${article.feedTitle}](${article.link})\n\n${article.summary}`.trim();
+    try {
+      const extracted = await this.extractQualityContent(article.link);
+      content = extracted.content;
+    } catch (error) {
+      console.warn("清简首页无法提取 RSS 原文，改用订阅摘要", error);
+    }
+    const folder = normalizePath(this.data.settings.rssFavoritesFolder.trim() || "12_RSS收藏");
+    const safeTitle = article.title.replace(/[\\/:*?"<>|]/g, "-").trim() || "RSS文章";
+    let path = this.asMarkdownPath(`${folder}/${dateKey(new Date(article.publishedAt))}-${safeTitle}`);
+    if (this.app.vault.getAbstractFileByPath(path)) path = this.asMarkdownPath(`${folder}/${dateKey(new Date())}-${safeTitle}-${Date.now()}`);
+    const file = await this.getOrCreateFile(path, `# ${article.title}\n\n${content}\n`);
+    article.saved = true;
+    article.read = true;
+    await this.persist();
+    new Notice(`已收藏到 ${path}`);
+    await this.app.workspace.getLeaf(false).openFile(file);
+  }
+
+  async ensureRssFavoritesFolder(): Promise<void> {
+    const folder = normalizePath(this.data.settings.rssFavoritesFolder.trim() || "12_RSS收藏");
+    let current = "";
+    for (const part of folder.split("/").filter(Boolean)) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
+  }
+
+  private async fetchRssFeed(url: string): Promise<{ title: string; articles: Array<Omit<RssArticle, "id" | "feedId" | "feedTitle" | "read" | "saved">> }> {
+    const response = await requestUrl({ url, method: "GET" });
+    const document = new DOMParser().parseFromString(response.text, "application/xml");
+    if (document.querySelector("parsererror")) throw new Error("invalid feed xml");
+    const channel = document.querySelector("channel");
+    const feedTitle = (channel?.querySelector("title")?.textContent || document.querySelector("feed > title")?.textContent || "").trim();
+    const nodes = Array.from(document.querySelectorAll("item, entry"));
+    const articles = nodes.map((node) => {
+      const title = (node.querySelector("title")?.textContent || "未命名文章").trim();
+      const atomLink = Array.from(node.querySelectorAll("link")).find((link) => !link.getAttribute("rel") || link.getAttribute("rel") === "alternate");
+      const rawLink = (atomLink?.getAttribute("href") || node.querySelector("link")?.textContent || node.querySelector("guid")?.textContent || "").trim();
+      let link = "";
+      try {
+        link = new URL(rawLink, url).toString();
+      } catch {
+        link = "";
+      }
+      const dateText = node.querySelector("pubDate, published, updated, date")?.textContent?.trim() || "";
+      const parsedDate = Date.parse(dateText);
+      const rawSummary = node.getElementsByTagName("content:encoded")[0]?.textContent
+        || node.querySelector("content, description, summary")?.textContent
+        || "";
+      const html = new DOMParser().parseFromString(rawSummary, "text/html");
+      const summary = (html.body.textContent || "").replace(/\s+/g, " ").trim().slice(0, 240);
+      return { title, link, publishedAt: Number.isNaN(parsedDate) ? Date.now() : parsedDate, summary };
+    }).filter((article) => article.link);
+    if (!nodes.length) throw new Error("feed has no articles");
+    return { title: feedTitle, articles };
+  }
+
+  private mergeRssArticles(
+    feed: RssFeed,
+    incoming: Array<Omit<RssArticle, "id" | "feedId" | "feedTitle" | "read" | "saved">>
+  ): void {
+    incoming.forEach((entry) => {
+      const existing = this.data.rssArticles.find((article) => article.link === entry.link);
+      if (existing) {
+        existing.title = entry.title;
+        existing.summary = entry.summary;
+        existing.feedTitle = feed.title;
+        if (entry.publishedAt) existing.publishedAt = entry.publishedAt;
+        return;
+      }
+      this.data.rssArticles.push({
+        ...entry,
+        id: uid(),
+        feedId: feed.id,
+        feedTitle: feed.title,
+        read: false,
+        saved: false
+      });
+    });
+    this.data.rssArticles = this.data.rssArticles
+      .sort((a, b) => b.publishedAt - a.publishedAt)
+      .slice(0, 300);
   }
 
   async addTask(text: string, priority: Priority): Promise<void> {
@@ -920,6 +1170,7 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   private async initializeHome(): Promise<void> {
+    await this.ensureRssFavoritesFolder();
     await this.migrateLegacyTasks();
     await this.scanVaultTasks();
     if (this.data.settings.openOnStartup) await this.openHome();
