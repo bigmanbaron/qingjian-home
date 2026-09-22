@@ -182,11 +182,13 @@ class NotePicker extends FuzzySuggestModal<TAbstractFile> {
 class RssReaderModal extends Modal {
   private plugin: QingjianHomePlugin;
   private article: RssArticle;
+  private onSaved?: () => void;
 
-  constructor(app: App, plugin: QingjianHomePlugin, article: RssArticle) {
+  constructor(app: App, plugin: QingjianHomePlugin, article: RssArticle, onSaved?: () => void) {
     super(app);
     this.plugin = plugin;
     this.article = article;
+    this.onSaved = onSaved;
   }
 
   onOpen(): void {
@@ -203,6 +205,7 @@ class RssReaderModal extends Modal {
       await this.plugin.saveRssArticle(this.article);
       save.setText("已收藏");
       save.disabled = true;
+      this.onSaved?.();
     });
     const reader = this.contentEl.createDiv({ cls: "qj-rss-reader-content" });
     reader.createDiv({ text: "正在读取完整内容…", cls: "qj-empty" });
@@ -260,9 +263,9 @@ class RssFeedModal extends Modal {
       articleLink.tabIndex = 0;
       articleLink.createSpan({ text: article.title, cls: "qj-rss-feed-article-title" });
       articleLink.createSpan({ text: displayTime(article.publishedAt), cls: "qj-muted" });
-      articleLink.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      articleLink.addEventListener("click", () => void this.plugin.openRssArticle(article, () => this.renderArticles()));
       articleLink.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article);
+        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article, () => this.renderArticles());
       });
       const remove = row.createEl("button", { text: "×", cls: "qj-rss-feed-article-remove" });
       remove.setAttr("aria-label", `删除 ${article.title}`);
@@ -1050,9 +1053,9 @@ export default class QingjianHomePlugin extends Plugin {
     await this.persist();
   }
 
-  async openRssArticle(article: RssArticle): Promise<void> {
+  async openRssArticle(article: RssArticle, onSaved?: () => void): Promise<void> {
     article.read = true;
-    new RssReaderModal(this.app, this, article).open();
+    new RssReaderModal(this.app, this, article, onSaved).open();
     this.refreshViews();
   }
 
@@ -1078,6 +1081,8 @@ export default class QingjianHomePlugin extends Plugin {
     const file = await this.getOrCreateFile(path, `# ${article.title}\n\n${content}\n`);
     article.saved = true;
     article.read = true;
+    if (!this.data.dismissedRssLinks.includes(article.link)) this.data.dismissedRssLinks.push(article.link);
+    this.data.rssArticles = this.data.rssArticles.filter((entry) => entry.id !== article.id);
     await this.persist();
     new Notice(`已收藏到 ${path}`);
     await this.app.workspace.getLeaf(false).openFile(file);

@@ -85,10 +85,11 @@ var NotePicker = class extends import_obsidian.FuzzySuggestModal {
   }
 };
 var RssReaderModal = class extends import_obsidian.Modal {
-  constructor(app, plugin, article) {
+  constructor(app, plugin, article, onSaved) {
     super(app);
     this.plugin = plugin;
     this.article = article;
+    this.onSaved = onSaved;
   }
   onOpen() {
     this.modalEl.addClass("qj-rss-reader-modal");
@@ -101,9 +102,11 @@ var RssReaderModal = class extends import_obsidian.Modal {
     const save = actions.createEl("button", { text: this.article.saved ? "\u5DF2\u6536\u85CF" : "\u6536\u85CF", cls: "qj-primary" });
     save.disabled = this.article.saved;
     save.addEventListener("click", async () => {
+      var _a;
       await this.plugin.saveRssArticle(this.article);
       save.setText("\u5DF2\u6536\u85CF");
       save.disabled = true;
+      (_a = this.onSaved) == null ? void 0 : _a.call(this);
     });
     const reader = this.contentEl.createDiv({ cls: "qj-rss-reader-content" });
     reader.createDiv({ text: "\u6B63\u5728\u8BFB\u53D6\u5B8C\u6574\u5185\u5BB9\u2026", cls: "qj-empty" });
@@ -152,9 +155,9 @@ var RssFeedModal = class extends import_obsidian.Modal {
       articleLink.tabIndex = 0;
       articleLink.createSpan({ text: article.title, cls: "qj-rss-feed-article-title" });
       articleLink.createSpan({ text: displayTime(article.publishedAt), cls: "qj-muted" });
-      articleLink.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      articleLink.addEventListener("click", () => void this.plugin.openRssArticle(article, () => this.renderArticles()));
       articleLink.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article);
+        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article, () => this.renderArticles());
       });
       const remove = row.createEl("button", { text: "\xD7", cls: "qj-rss-feed-article-remove" });
       remove.setAttr("aria-label", `\u5220\u9664 ${article.title}`);
@@ -833,9 +836,9 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.data.rssArticles = this.data.rssArticles.filter((entry) => entry.id !== article.id);
     await this.persist();
   }
-  async openRssArticle(article) {
+  async openRssArticle(article, onSaved) {
     article.read = true;
-    new RssReaderModal(this.app, this, article).open();
+    new RssReaderModal(this.app, this, article, onSaved).open();
     this.refreshViews();
   }
   async getRssArticleContent(article) {
@@ -865,6 +868,8 @@ ${content}
 `);
     article.saved = true;
     article.read = true;
+    if (!this.data.dismissedRssLinks.includes(article.link)) this.data.dismissedRssLinks.push(article.link);
+    this.data.rssArticles = this.data.rssArticles.filter((entry) => entry.id !== article.id);
     await this.persist();
     new import_obsidian.Notice(`\u5DF2\u6536\u85CF\u5230 ${path}`);
     await this.app.workspace.getLeaf(false).openFile(file);
