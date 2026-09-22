@@ -40,7 +40,7 @@ var DEFAULT_DATA = {
     completedTasksPath: "10_\u5DF2\u5B8C\u6210\u5F85\u529E/\u5DF2\u5B8C\u6210\u5F85\u529E.md",
     qualityContentFolder: "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6",
     rssFavoritesFolder: "12_RSS\u6536\u85CF",
-    rssFeedsPath: "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md"
+    rssFeedsPath: "13_RSS\u8BA2\u9605/\u8BA2\u9605\u5217\u8868.md"
   }
 };
 function uid() {
@@ -664,7 +664,7 @@ var QingjianSettingTab = class extends import_obsidian.PluginSettingTab {
       await this.plugin.persist();
     }));
     new import_obsidian.Setting(containerEl).setName("RSS \u8BA2\u9605\u540C\u6B65\u6587\u4EF6").setDesc("\u8BA2\u9605\u5730\u5740\u4FDD\u5B58\u5728 Markdown \u6587\u4EF6\u4E2D\uFF0C\u7528\u4E8E Windows \u548C iOS \u540C\u6B65\u3002").addText((text) => text.setValue(this.plugin.data.settings.rssFeedsPath).onChange(async (value) => {
-      this.plugin.data.settings.rssFeedsPath = value.trim() || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md";
+      this.plugin.data.settings.rssFeedsPath = value.trim() || "13_RSS\u8BA2\u9605/\u8BA2\u9605\u5217\u8868.md";
       await this.plugin.writeRssFeedsFile();
       await this.plugin.persist();
     }));
@@ -856,7 +856,7 @@ ${content}
     }
   }
   async writeRssFeedsFile() {
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS\u8BA2\u9605/\u8BA2\u9605\u5217\u8868.md");
     const lines = [
       "# RSS\u8BA2\u9605",
       "",
@@ -880,7 +880,7 @@ ${content}
   }
   async syncRssFeedsFromVault(refreshAfter = true) {
     if (this.writingRssFeeds) return;
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS\u8BA2\u9605/\u8BA2\u9605\u5217\u8868.md");
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof import_obsidian.TFile)) {
       await this.writeRssFeedsFile();
@@ -910,7 +910,7 @@ ${content}
   }
   queueRssFeedSync(file) {
     if (this.writingRssFeeds) return;
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS\u8BA2\u9605/\u8BA2\u9605\u5217\u8868.md");
     if (file.path !== path) return;
     if (this.rssSyncTimer !== void 0) window.clearTimeout(this.rssSyncTimer);
     this.rssSyncTimer = window.setTimeout(() => void this.syncRssFeedsFromVault(), 400);

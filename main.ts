@@ -122,7 +122,7 @@ const DEFAULT_DATA: HomeData = {
     completedTasksPath: "10_已完成待办/已完成待办.md",
     qualityContentFolder: "11_优质内容收集",
     rssFavoritesFolder: "12_RSS收藏",
-    rssFeedsPath: "00_Inbox/清简首页-RSS订阅.md"
+    rssFeedsPath: "13_RSS订阅/订阅列表.md"
   }
 };
 
@@ -860,7 +860,7 @@ class QingjianSettingTab extends PluginSettingTab {
       .addText((text) => text
         .setValue(this.plugin.data.settings.rssFeedsPath)
         .onChange(async (value) => {
-          this.plugin.data.settings.rssFeedsPath = value.trim() || "00_Inbox/清简首页-RSS订阅.md";
+          this.plugin.data.settings.rssFeedsPath = value.trim() || "13_RSS订阅/订阅列表.md";
           await this.plugin.writeRssFeedsFile();
           await this.plugin.persist();
         }));
@@ -1070,7 +1070,7 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   async writeRssFeedsFile(): Promise<void> {
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/清简首页-RSS订阅.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS订阅/订阅列表.md");
     const lines = [
       "# RSS订阅",
       "",
@@ -1095,7 +1095,7 @@ export default class QingjianHomePlugin extends Plugin {
 
   private async syncRssFeedsFromVault(refreshAfter = true): Promise<void> {
     if (this.writingRssFeeds) return;
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/清简首页-RSS订阅.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS订阅/订阅列表.md");
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
       await this.writeRssFeedsFile();
@@ -1127,7 +1127,7 @@ export default class QingjianHomePlugin extends Plugin {
 
   private queueRssFeedSync(file: TAbstractFile): void {
     if (this.writingRssFeeds) return;
-    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/清简首页-RSS订阅.md");
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS订阅/订阅列表.md");
     if (file.path !== path) return;
     if (this.rssSyncTimer !== undefined) window.clearTimeout(this.rssSyncTimer);
     this.rssSyncTimer = window.setTimeout(() => void this.syncRssFeedsFromVault(), 400);
