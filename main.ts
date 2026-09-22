@@ -331,14 +331,14 @@ class QingjianHomeView extends ItemView {
     const greeting = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
     const header = root.createDiv({ cls: "qj-header" });
     const title = header.createDiv();
-    title.createEl("h1", { text: greeting });
+    title.createEl("h1", { text: `${greeting}，Baron` });
     title.createEl("p", {
-      text: new Intl.DateTimeFormat("zh-CN", {
+      text: `今天是${new Intl.DateTimeFormat("zh-CN", {
         year: "numeric",
         month: "long",
         day: "numeric",
         weekday: "long"
-      }).format(now)
+      }).format(now)}`
     });
     const todayButton = header.createEl("button", { text: "打开今日日记", cls: "qj-primary" });
     todayButton.addEventListener("click", () => void this.plugin.openDailyNote(now));

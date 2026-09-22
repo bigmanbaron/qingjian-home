@@ -212,14 +212,14 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const greeting = hour < 6 ? "\u591C\u6DF1\u4E86" : hour < 12 ? "\u65E9\u4E0A\u597D" : hour < 18 ? "\u4E0B\u5348\u597D" : "\u665A\u4E0A\u597D";
     const header = root.createDiv({ cls: "qj-header" });
     const title = header.createDiv();
-    title.createEl("h1", { text: greeting });
+    title.createEl("h1", { text: `${greeting}\uFF0CBaron` });
     title.createEl("p", {
-      text: new Intl.DateTimeFormat("zh-CN", {
+      text: `\u4ECA\u5929\u662F${new Intl.DateTimeFormat("zh-CN", {
         year: "numeric",
         month: "long",
         day: "numeric",
         weekday: "long"
-      }).format(now)
+      }).format(now)}`
     });
     const todayButton = header.createEl("button", { text: "\u6253\u5F00\u4ECA\u65E5\u65E5\u8BB0", cls: "qj-primary" });
     todayButton.addEventListener("click", () => void this.plugin.openDailyNote(now));
