@@ -124,7 +124,12 @@ var RssFeedModal = class extends import_obsidian.Modal {
   onOpen() {
     this.modalEl.addClass("qj-rss-feed-modal");
     this.titleEl.setText(this.feed.title);
-    this.renderArticles();
+    if (this.plugin.data.rssArticles.some((article) => article.feedId === this.feed.id)) {
+      this.renderArticles();
+    } else {
+      this.contentEl.createDiv({ text: "\u6B63\u5728\u4ECE\u6E90\u7AD9\u8BFB\u53D6\u6587\u7AE0\u2026", cls: "qj-empty" });
+      void this.plugin.refreshRssFeed(this.feed.id, false).then(() => this.renderArticles());
+    }
   }
   renderArticles() {
     this.contentEl.empty();
@@ -684,7 +689,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.writingRssFeeds = false;
   }
   async onload() {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g;
     const saved = await this.loadData();
     this.data = {
       schemaVersion: (_a = saved == null ? void 0 : saved.schemaVersion) != null ? _a : DEFAULT_DATA.schemaVersion,
@@ -692,9 +697,9 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       moments: (_c = saved == null ? void 0 : saved.moments) != null ? _c : [],
       reminders: (_d = saved == null ? void 0 : saved.reminders) != null ? _d : [],
       rssFeeds: (_e = saved == null ? void 0 : saved.rssFeeds) != null ? _e : [],
-      rssArticles: (_f = saved == null ? void 0 : saved.rssArticles) != null ? _f : [],
-      dismissedRssLinks: (_g = saved == null ? void 0 : saved.dismissedRssLinks) != null ? _g : [],
-      settings: { ...DEFAULT_DATA.settings, ...(_h = saved == null ? void 0 : saved.settings) != null ? _h : {} }
+      rssArticles: [],
+      dismissedRssLinks: (_f = saved == null ? void 0 : saved.dismissedRssLinks) != null ? _f : [],
+      settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
     this.addRibbonIcon("home", "\u6253\u5F00\u6E05\u7B80\u9996\u9875", () => void this.openHome());
@@ -730,7 +735,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
   async persist() {
-    await this.saveData(this.data);
+    await this.saveData({ ...this.data, rssArticles: [] });
     this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
       const view = leaf.view;
       if (view instanceof QingjianHomeView) view.render();
@@ -771,7 +776,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   openRssFeed(feed) {
     new RssFeedModal(this.app, this, feed).open();
   }
-  async refreshRssFeed(feedId) {
+  async refreshRssFeed(feedId, notify = true) {
     const feed = this.data.rssFeeds.find((entry) => entry.id === feedId);
     if (!feed) return;
     try {
@@ -781,10 +786,10 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       this.mergeRssArticles(feed, parsed.articles);
       await this.writeRssFeedsFile();
       await this.persist();
-      new import_obsidian.Notice(`\u5DF2\u5237\u65B0 ${feed.title}`);
+      if (notify) new import_obsidian.Notice(`\u5DF2\u5237\u65B0 ${feed.title}`);
     } catch (error) {
       console.error(`\u6E05\u7B80\u9996\u9875\u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
-      new import_obsidian.Notice("\u5237\u65B0\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+      if (notify) new import_obsidian.Notice("\u5237\u65B0\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
     }
   }
   async refreshAllRssFeeds(notify = true) {
@@ -814,7 +819,6 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   }
   async openRssArticle(article) {
     article.read = true;
-    await this.saveData(this.data);
     new RssReaderModal(this.app, this, article).open();
     this.refreshViews();
   }
@@ -824,7 +828,6 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     try {
       const extracted = await this.extractQualityContent(article.link);
       article.content = extracted.content;
-      await this.saveData(this.data);
       return article.content;
     } catch (error) {
       console.warn("\u6E05\u7B80\u9996\u9875\u65E0\u6CD5\u8BFB\u53D6 RSS \u5B8C\u6574\u6B63\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u5185\u5BB9", error);
@@ -929,8 +932,8 @@ ${content}
   }
   async fetchRssFeed(url) {
     var _a, _b;
-    const response = await (0, import_obsidian.requestUrl)({ url, method: "GET" });
-    const document2 = new DOMParser().parseFromString(response.text, "application/xml");
+    const source = await this.requestSource(url, "application/rss+xml, application/atom+xml, application/xml, text/xml, */*");
+    const document2 = new DOMParser().parseFromString(source, "application/xml");
     if (document2.querySelector("parsererror")) throw new Error("invalid feed xml");
     const channel = document2.querySelector("channel");
     const feedTitle = (((_a = channel == null ? void 0 : channel.querySelector("title")) == null ? void 0 : _a.textContent) || ((_b = document2.querySelector("feed > title")) == null ? void 0 : _b.textContent) || "").trim();
@@ -976,7 +979,29 @@ ${content}
         saved: false
       });
     });
-    this.data.rssArticles = this.data.rssArticles.sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 300);
+    this.data.rssArticles = this.data.rssArticles.sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 120);
+  }
+  async requestSource(url, accept) {
+    const attempts = [
+      {
+        Accept: accept,
+        "Cache-Control": "no-cache",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
+      },
+      { Accept: accept },
+      {}
+    ];
+    let lastError;
+    for (const headers of attempts) {
+      try {
+        const response = await (0, import_obsidian.requestUrl)({ url, method: "GET", headers });
+        if (response.status >= 400 || !response.text.trim()) throw new Error(`HTTP ${response.status}`);
+        return response.text;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("\u65E0\u6CD5\u8BBF\u95EE\u6E90\u7AD9");
   }
   async addTask(text, priority) {
     const path = this.asMarkdownPath(this.data.settings.taskInboxPath);
@@ -1125,8 +1150,8 @@ ${moment.text.trim()}
     var _a, _b;
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("\u4E0D\u652F\u6301\u7684\u94FE\u63A5\u534F\u8BAE");
-    const response = await (0, import_obsidian.requestUrl)({ url: url.toString(), method: "GET" });
-    const document2 = new DOMParser().parseFromString(response.text, "text/html");
+    const source = await this.requestSource(url.toString(), "text/html, application/xhtml+xml, */*");
+    const document2 = new DOMParser().parseFromString(source, "text/html");
     document2.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe").forEach((element) => element.remove());
     document2.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
@@ -1144,13 +1169,13 @@ ${moment.text.trim()}
       var _a2, _b2, _c, _d;
       const srcset = image.getAttribute("data-srcset") || image.getAttribute("srcset") || ((_b2 = (_a2 = image.closest("picture")) == null ? void 0 : _a2.querySelector("source[data-srcset], source[srcset]")) == null ? void 0 : _b2.getAttribute("data-srcset")) || ((_d = (_c = image.closest("picture")) == null ? void 0 : _c.querySelector("source[srcset]")) == null ? void 0 : _d.getAttribute("srcset"));
       const srcsetSource = srcset == null ? void 0 : srcset.split(",").map((candidate) => candidate.trim().split(/\s+/)[0]).filter(Boolean).pop();
-      const source = image.getAttribute("data-original") || image.getAttribute("data-lazy-src") || image.getAttribute("data-src") || srcsetSource || image.getAttribute("src");
-      if (!source || /^(data|blob):/i.test(source)) {
+      const source2 = image.getAttribute("data-original") || image.getAttribute("data-lazy-src") || image.getAttribute("data-src") || srcsetSource || image.getAttribute("src");
+      if (!source2 || /^(data|blob):/i.test(source2)) {
         image.remove();
         return;
       }
       try {
-        const absoluteSource = new URL(source, url).toString();
+        const absoluteSource = new URL(source2, url).toString();
         const alt = (image.getAttribute("alt") || image.getAttribute("title") || "\u56FE\u7247").replace(/[\\[\]]/g, "").trim() || "\u56FE\u7247";
         const token = `QJEXTRACTEDIMAGE${index}TOKEN`;
         extractedImages.push({ token, markdown: `![${alt}](<${absoluteSource}>)` });

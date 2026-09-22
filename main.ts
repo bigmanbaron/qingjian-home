@@ -229,7 +229,12 @@ class RssFeedModal extends Modal {
   onOpen(): void {
     this.modalEl.addClass("qj-rss-feed-modal");
     this.titleEl.setText(this.feed.title);
-    this.renderArticles();
+    if (this.plugin.data.rssArticles.some((article) => article.feedId === this.feed.id)) {
+      this.renderArticles();
+    } else {
+      this.contentEl.createDiv({ text: "正在从源站读取文章…", cls: "qj-empty" });
+      void this.plugin.refreshRssFeed(this.feed.id, false).then(() => this.renderArticles());
+    }
   }
 
   private renderArticles(): void {
@@ -896,7 +901,7 @@ export default class QingjianHomePlugin extends Plugin {
       moments: saved?.moments ?? [],
       reminders: saved?.reminders ?? [],
       rssFeeds: saved?.rssFeeds ?? [],
-      rssArticles: saved?.rssArticles ?? [],
+      rssArticles: [],
       dismissedRssLinks: saved?.dismissedRssLinks ?? [],
       settings: { ...DEFAULT_DATA.settings, ...(saved?.settings ?? {}) }
     };
@@ -939,7 +944,7 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   async persist(): Promise<void> {
-    await this.saveData(this.data);
+    await this.saveData({ ...this.data, rssArticles: [] });
     this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
       const view = leaf.view;
       if (view instanceof QingjianHomeView) view.render();
@@ -984,7 +989,7 @@ export default class QingjianHomePlugin extends Plugin {
     new RssFeedModal(this.app, this, feed).open();
   }
 
-  async refreshRssFeed(feedId: string): Promise<void> {
+  async refreshRssFeed(feedId: string, notify = true): Promise<void> {
     const feed = this.data.rssFeeds.find((entry) => entry.id === feedId);
     if (!feed) return;
     try {
@@ -994,10 +999,10 @@ export default class QingjianHomePlugin extends Plugin {
       this.mergeRssArticles(feed, parsed.articles);
       await this.writeRssFeedsFile();
       await this.persist();
-      new Notice(`已刷新 ${feed.title}`);
+      if (notify) new Notice(`已刷新 ${feed.title}`);
     } catch (error) {
       console.error(`清简首页刷新 RSS 失败：${feed.url}`, error);
-      new Notice("刷新失败，请稍后重试");
+      if (notify) new Notice("刷新失败，请稍后重试");
     }
   }
 
@@ -1031,7 +1036,6 @@ export default class QingjianHomePlugin extends Plugin {
 
   async openRssArticle(article: RssArticle): Promise<void> {
     article.read = true;
-    await this.saveData(this.data);
     new RssReaderModal(this.app, this, article).open();
     this.refreshViews();
   }
@@ -1041,7 +1045,6 @@ export default class QingjianHomePlugin extends Plugin {
     try {
       const extracted = await this.extractQualityContent(article.link);
       article.content = extracted.content;
-      await this.saveData(this.data);
       return article.content;
     } catch (error) {
       console.warn("清简首页无法读取 RSS 完整正文，改用订阅内容", error);
@@ -1148,8 +1151,8 @@ export default class QingjianHomePlugin extends Plugin {
   }
 
   private async fetchRssFeed(url: string): Promise<{ title: string; articles: Array<Omit<RssArticle, "id" | "feedId" | "feedTitle" | "read" | "saved">> }> {
-    const response = await requestUrl({ url, method: "GET" });
-    const document = new DOMParser().parseFromString(response.text, "application/xml");
+    const source = await this.requestSource(url, "application/rss+xml, application/atom+xml, application/xml, text/xml, */*");
+    const document = new DOMParser().parseFromString(source, "application/xml");
     if (document.querySelector("parsererror")) throw new Error("invalid feed xml");
     const channel = document.querySelector("channel");
     const feedTitle = (channel?.querySelector("title")?.textContent || document.querySelector("feed > title")?.textContent || "").trim();
@@ -1202,7 +1205,30 @@ export default class QingjianHomePlugin extends Plugin {
     });
     this.data.rssArticles = this.data.rssArticles
       .sort((a, b) => b.publishedAt - a.publishedAt)
-      .slice(0, 300);
+      .slice(0, 120);
+  }
+
+  private async requestSource(url: string, accept: string): Promise<string> {
+    const attempts: Array<Record<string, string>> = [
+      {
+        Accept: accept,
+        "Cache-Control": "no-cache",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
+      },
+      { Accept: accept },
+      {}
+    ];
+    let lastError: unknown;
+    for (const headers of attempts) {
+      try {
+        const response = await requestUrl({ url, method: "GET", headers });
+        if (response.status >= 400 || !response.text.trim()) throw new Error(`HTTP ${response.status}`);
+        return response.text;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("无法访问源站");
   }
 
   async addTask(text: string, priority: Priority): Promise<void> {
@@ -1340,8 +1366,8 @@ export default class QingjianHomePlugin extends Plugin {
   async extractQualityContent(rawUrl: string): Promise<{ title: string; content: string }> {
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("不支持的链接协议");
-    const response = await requestUrl({ url: url.toString(), method: "GET" });
-    const document = new DOMParser().parseFromString(response.text, "text/html");
+    const source = await this.requestSource(url.toString(), "text/html, application/xhtml+xml, */*");
+    const document = new DOMParser().parseFromString(source, "text/html");
     document.querySelectorAll("script, style, noscript, nav, footer, header, form, button, svg, iframe")
       .forEach((element) => element.remove());
     document.querySelectorAll("a[href]").forEach((link) => {
