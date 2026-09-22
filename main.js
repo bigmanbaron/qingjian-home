@@ -186,6 +186,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   }
   async onOpen() {
     this.render();
+    if (this.plugin.data.rssFeeds.length) void this.plugin.refreshAllRssFeeds(false);
   }
   render() {
     const root = this.containerEl.children[1];
@@ -296,6 +297,9 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       const save = actions.createEl("button", { text: article.saved ? "\u5DF2\u6536\u85CF" : "\u6536\u85CF" });
       save.disabled = article.saved;
       save.addEventListener("click", () => void this.plugin.saveRssArticle(article));
+      const remove = actions.createEl("button", { text: "\xD7", cls: "qj-rss-home-remove" });
+      remove.setAttr("aria-label", `\u5220\u9664 ${article.title}`);
+      remove.addEventListener("click", () => void this.plugin.dismissRssArticle(article));
     });
   }
   selectRssHomeArticles() {
@@ -309,7 +313,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     }).join("|");
     if (signature === this.rssSelectionSignature) {
       const cached = this.rssSelectionIds.map((id) => this.plugin.data.rssArticles.find((article) => article.id === id)).filter((article) => Boolean(article));
-      if (cached.length) return cached;
+      if (cached.length === 4) return cached;
     }
     let selected = [];
     if (groups.length === 1) {
@@ -738,11 +742,13 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   }
   async openHome() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
+    const alreadyOpen = Boolean(leaf);
     if (!leaf) {
       leaf = this.app.workspace.getLeaf(true);
       await leaf.setViewState({ type: VIEW_TYPE, active: true });
     }
     this.app.workspace.revealLeaf(leaf);
+    if (alreadyOpen && this.data.rssFeeds.length) void this.refreshAllRssFeeds(false);
   }
   async persist() {
     await this.saveData({ ...this.data, rssArticles: [] });

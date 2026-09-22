@@ -301,6 +301,7 @@ class QingjianHomeView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.render();
+    if (this.plugin.data.rssFeeds.length) void this.plugin.refreshAllRssFeeds(false);
   }
 
   render(): void {
@@ -420,6 +421,9 @@ class QingjianHomeView extends ItemView {
       const save = actions.createEl("button", { text: article.saved ? "已收藏" : "收藏" });
       save.disabled = article.saved;
       save.addEventListener("click", () => void this.plugin.saveRssArticle(article));
+      const remove = actions.createEl("button", { text: "×", cls: "qj-rss-home-remove" });
+      remove.setAttr("aria-label", `删除 ${article.title}`);
+      remove.addEventListener("click", () => void this.plugin.dismissRssArticle(article));
     });
   }
 
@@ -435,7 +439,7 @@ class QingjianHomeView extends ItemView {
       const cached = this.rssSelectionIds
         .map((id) => this.plugin.data.rssArticles.find((article) => article.id === id))
         .filter((article): article is RssArticle => Boolean(article));
-      if (cached.length) return cached;
+      if (cached.length === 4) return cached;
     }
 
     let selected: RssArticle[] = [];
@@ -946,11 +950,13 @@ export default class QingjianHomePlugin extends Plugin {
 
   async openHome(): Promise<void> {
     let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
+    const alreadyOpen = Boolean(leaf);
     if (!leaf) {
       leaf = this.app.workspace.getLeaf(true);
       await leaf.setViewState({ type: VIEW_TYPE, active: true });
     }
     this.app.workspace.revealLeaf(leaf);
+    if (alreadyOpen && this.data.rssFeeds.length) void this.refreshAllRssFeeds(false);
   }
 
   async persist(): Promise<void> {

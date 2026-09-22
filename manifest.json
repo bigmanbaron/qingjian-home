@@ -1,7 +1,7 @@
 {
   "id": "qingjian-home",
   "name": "清简首页",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "minAppVersion": "1.5.0",
   "description": "一个简洁的 Obsidian 自用首页：RSS 阅读、待办、每日瞬间、提醒、内容收集和快捷入口。",
   "author": "bigmanbaron",
