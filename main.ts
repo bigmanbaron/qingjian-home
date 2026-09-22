@@ -255,10 +255,15 @@ class RssFeedModal extends Modal {
     if (!articles.length) list.createDiv({ text: "这个订阅源暂时没有文章", cls: "qj-empty" });
     articles.forEach((article) => {
       const row = list.createDiv({ cls: `qj-rss-feed-article${article.read ? " is-read" : ""}` });
-      const button = row.createEl("button", { cls: "qj-rss-feed-article-open" });
-      button.createSpan({ text: article.title, cls: "qj-rss-feed-article-title" });
-      button.createSpan({ text: displayTime(article.publishedAt), cls: "qj-muted" });
-      button.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      const articleLink = row.createDiv({ cls: "qj-rss-feed-article-open" });
+      articleLink.setAttr("role", "button");
+      articleLink.tabIndex = 0;
+      articleLink.createSpan({ text: article.title, cls: "qj-rss-feed-article-title" });
+      articleLink.createSpan({ text: displayTime(article.publishedAt), cls: "qj-muted" });
+      articleLink.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      articleLink.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article);
+      });
       const remove = row.createEl("button", { text: "×", cls: "qj-rss-feed-article-remove" });
       remove.setAttr("aria-label", `删除 ${article.title}`);
       remove.addEventListener("click", async () => {
@@ -397,8 +402,13 @@ class QingjianHomeView extends ItemView {
     articles.forEach((article) => {
       const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
       const body = row.createDiv({ cls: "qj-rss-body" });
-      const title = body.createEl("button", { text: article.title, cls: "qj-rss-title" });
+      const title = body.createDiv({ text: article.title, cls: "qj-rss-title" });
+      title.setAttr("role", "button");
+      title.tabIndex = 0;
       title.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      title.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") void this.plugin.openRssArticle(article);
+      });
       body.createDiv({
         text: `${article.feedTitle} · ${displayTime(article.publishedAt)}`,
         cls: "qj-muted qj-rss-meta"
@@ -430,27 +440,27 @@ class QingjianHomeView extends ItemView {
 
     let selected: RssArticle[] = [];
     if (groups.length === 1) {
-      selected = groups[0].articles.slice(0, 3);
+      selected = groups[0].articles.slice(0, 4);
     } else if (groups.length === 2) {
-      selected = [groups[0].articles[0], groups[1].articles[0]];
-      const remaining = groups.flatMap((group) => group.articles.slice(1));
-      if (remaining.length) selected.push(remaining[Math.floor(Math.random() * remaining.length)]);
+      selected = groups.flatMap((group) => group.articles.slice(0, 2));
     } else if (groups.length === 3) {
       selected = groups.map((group) => group.articles[0]);
+      const remaining = groups.flatMap((group) => group.articles.slice(1));
+      if (remaining.length) selected.push(remaining[Math.floor(Math.random() * remaining.length)]);
     } else if (groups.length > 3) {
       const shuffled = [...groups].sort(() => Math.random() - 0.5);
-      selected = shuffled.slice(0, 3).map((group) => group.articles[0]);
+      selected = shuffled.slice(0, 4).map((group) => group.articles[0]);
     }
 
-    if (selected.length < 3) {
+    if (selected.length < 4) {
       const remaining = groups.flatMap((group) => group.articles)
         .filter((article) => !selected.some((entry) => entry.id === article.id))
         .sort((a, b) => b.publishedAt - a.publishedAt);
-      selected.push(...remaining.slice(0, 3 - selected.length));
+      selected.push(...remaining.slice(0, 4 - selected.length));
     }
     this.rssSelectionSignature = signature;
-    this.rssSelectionIds = selected.slice(0, 3).map((article) => article.id);
-    return selected.slice(0, 3);
+    this.rssSelectionIds = selected.slice(0, 4).map((article) => article.id);
+    return selected.slice(0, 4);
   }
 
   private bindDraft(
