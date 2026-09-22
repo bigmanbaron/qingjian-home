@@ -31,6 +31,7 @@ var DEFAULT_DATA = {
   reminders: [],
   rssFeeds: [],
   rssArticles: [],
+  dismissedRssLinks: [],
   settings: {
     openOnStartup: true,
     defaultArchivePath: "\u6BCF\u65E5\u77AC\u95F4.md",
@@ -38,7 +39,8 @@ var DEFAULT_DATA = {
     taskInboxPath: "\u5F85\u529E\u6536\u96C6.md",
     completedTasksPath: "10_\u5DF2\u5B8C\u6210\u5F85\u529E/\u5DF2\u5B8C\u6210\u5F85\u529E.md",
     qualityContentFolder: "11_\u4F18\u8D28\u5185\u5BB9\u6536\u96C6",
-    rssFavoritesFolder: "12_RSS\u6536\u85CF"
+    rssFavoritesFolder: "12_RSS\u6536\u85CF",
+    rssFeedsPath: "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md"
   }
 };
 function uid() {
@@ -113,12 +115,54 @@ var RssReaderModal = class extends import_obsidian.Modal {
     await import_obsidian.MarkdownRenderer.render(this.app, content, container, "", this.plugin);
   }
 };
+var RssFeedModal = class extends import_obsidian.Modal {
+  constructor(app, plugin, feed) {
+    super(app);
+    this.plugin = plugin;
+    this.feed = feed;
+  }
+  onOpen() {
+    this.modalEl.addClass("qj-rss-feed-modal");
+    this.titleEl.setText(this.feed.title);
+    this.renderArticles();
+  }
+  renderArticles() {
+    this.contentEl.empty();
+    const toolbar = this.contentEl.createDiv({ cls: "qj-rss-feed-modal-toolbar" });
+    toolbar.createDiv({ text: this.feed.url, cls: "qj-muted qj-rss-feed-url" });
+    const refresh = toolbar.createEl("button", { text: "\u5237\u65B0" });
+    refresh.addEventListener("click", async () => {
+      refresh.disabled = true;
+      refresh.setText("\u5237\u65B0\u4E2D\u2026");
+      await this.plugin.refreshRssFeed(this.feed.id);
+      this.renderArticles();
+    });
+    const list = this.contentEl.createDiv({ cls: "qj-rss-feed-articles" });
+    const articles = this.plugin.data.rssArticles.filter((article) => article.feedId === this.feed.id).sort((a, b) => b.publishedAt - a.publishedAt);
+    if (!articles.length) list.createDiv({ text: "\u8FD9\u4E2A\u8BA2\u9605\u6E90\u6682\u65F6\u6CA1\u6709\u6587\u7AE0", cls: "qj-empty" });
+    articles.forEach((article) => {
+      const row = list.createDiv({ cls: `qj-rss-feed-article${article.read ? " is-read" : ""}` });
+      const button = row.createEl("button", { cls: "qj-rss-feed-article-open" });
+      button.createSpan({ text: article.title, cls: "qj-rss-feed-article-title" });
+      button.createSpan({ text: displayTime(article.publishedAt), cls: "qj-muted" });
+      button.addEventListener("click", () => void this.plugin.openRssArticle(article));
+      const remove = row.createEl("button", { text: "\xD7", cls: "qj-rss-feed-article-remove" });
+      remove.setAttr("aria-label", `\u5220\u9664 ${article.title}`);
+      remove.addEventListener("click", async () => {
+        await this.plugin.dismissRssArticle(article);
+        this.renderArticles();
+      });
+    });
+  }
+};
 var QingjianHomeView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.taskFilter = "all";
     this.showCompletedTasks = false;
     this.drafts = /* @__PURE__ */ new Map();
+    this.rssSelectionSignature = "";
+    this.rssSelectionIds = [];
     this.plugin = plugin;
   }
   getViewType() {
@@ -204,8 +248,10 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     if (!this.plugin.data.rssFeeds.length) feeds.createSpan({ text: "\u5C1A\u672A\u6DFB\u52A0\u8BA2\u9605\u6E90", cls: "qj-muted" });
     this.plugin.data.rssFeeds.forEach((feed) => {
       const chip = feeds.createDiv({ cls: "qj-rss-feed-chip" });
-      chip.createSpan({ text: feed.title });
-      const remove = chip.createEl("button", { text: "\xD7" });
+      const open = chip.createEl("button", { text: feed.title, cls: "qj-rss-feed-open" });
+      open.setAttr("title", `\u67E5\u770B ${feed.title} \u7684\u5168\u90E8\u6587\u7AE0`);
+      open.addEventListener("click", () => this.plugin.openRssFeed(feed));
+      const remove = chip.createEl("button", { text: "\xD7", cls: "qj-rss-feed-remove" });
       remove.setAttr("aria-label", `\u5220\u9664\u8BA2\u9605 ${feed.title}`);
       remove.addEventListener("click", () => void this.plugin.removeRssFeed(feed.id));
     });
@@ -217,7 +263,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       await this.plugin.refreshAllRssFeeds();
     });
     const list = card.createDiv({ cls: "qj-rss-list" });
-    const articles = this.plugin.data.rssArticles.slice(0, 20);
+    const articles = this.selectRssHomeArticles();
     if (!articles.length) this.emptyState(list, "\u8BA2\u9605\u540E\uFF0C\u6700\u65B0\u6587\u7AE0\u4F1A\u663E\u793A\u5728\u8FD9\u91CC");
     articles.forEach((article) => {
       const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
@@ -236,6 +282,40 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
       save.disabled = article.saved;
       save.addEventListener("click", () => void this.plugin.saveRssArticle(article));
     });
+  }
+  selectRssHomeArticles() {
+    const groups = this.plugin.data.rssFeeds.map((feed) => ({
+      feed,
+      articles: this.plugin.data.rssArticles.filter((article) => article.feedId === feed.id).sort((a, b) => b.publishedAt - a.publishedAt)
+    })).filter((group) => group.articles.length);
+    const signature = groups.map((group) => {
+      var _a, _b;
+      return `${group.feed.id}:${(_b = (_a = group.articles[0]) == null ? void 0 : _a.id) != null ? _b : ""}`;
+    }).join("|");
+    if (signature === this.rssSelectionSignature) {
+      const cached = this.rssSelectionIds.map((id) => this.plugin.data.rssArticles.find((article) => article.id === id)).filter((article) => Boolean(article));
+      if (cached.length) return cached;
+    }
+    let selected = [];
+    if (groups.length === 1) {
+      selected = groups[0].articles.slice(0, 3);
+    } else if (groups.length === 2) {
+      selected = [groups[0].articles[0], groups[1].articles[0]];
+      const remaining = groups.flatMap((group) => group.articles.slice(1));
+      if (remaining.length) selected.push(remaining[Math.floor(Math.random() * remaining.length)]);
+    } else if (groups.length === 3) {
+      selected = groups.map((group) => group.articles[0]);
+    } else if (groups.length > 3) {
+      const shuffled = [...groups].sort(() => Math.random() - 0.5);
+      selected = shuffled.slice(0, 3).map((group) => group.articles[0]);
+    }
+    if (selected.length < 3) {
+      const remaining = groups.flatMap((group) => group.articles).filter((article) => !selected.some((entry) => entry.id === article.id)).sort((a, b) => b.publishedAt - a.publishedAt);
+      selected.push(...remaining.slice(0, 3 - selected.length));
+    }
+    this.rssSelectionSignature = signature;
+    this.rssSelectionIds = selected.slice(0, 3).map((article) => article.id);
+    return selected.slice(0, 3);
   }
   bindDraft(element, key, fallback = "") {
     var _a;
@@ -583,6 +663,11 @@ var QingjianSettingTab = class extends import_obsidian.PluginSettingTab {
       await this.plugin.ensureRssFavoritesFolder();
       await this.plugin.persist();
     }));
+    new import_obsidian.Setting(containerEl).setName("RSS \u8BA2\u9605\u540C\u6B65\u6587\u4EF6").setDesc("\u8BA2\u9605\u5730\u5740\u4FDD\u5B58\u5728 Markdown \u6587\u4EF6\u4E2D\uFF0C\u7528\u4E8E Windows \u548C iOS \u540C\u6B65\u3002").addText((text) => text.setValue(this.plugin.data.settings.rssFeedsPath).onChange(async (value) => {
+      this.plugin.data.settings.rssFeedsPath = value.trim() || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md";
+      await this.plugin.writeRssFeedsFile();
+      await this.plugin.persist();
+    }));
     new import_obsidian.Setting(containerEl).setName("\u65E5\u8BB0\u6587\u4EF6\u5939").setDesc("\u65E5\u8BB0\u6587\u4EF6\u540D\u56FA\u5B9A\u4E3A YYYY-MM-DD.md\uFF1B\u7559\u7A7A\u5219\u4FDD\u5B58\u5728\u5E93\u6839\u76EE\u5F55\u3002").addText((text) => text.setValue(this.plugin.data.settings.dailyNotesFolder).onChange(async (value) => {
       this.plugin.data.settings.dailyNotesFolder = value.trim();
       await this.plugin.persist();
@@ -595,9 +680,10 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.data = structuredClone(DEFAULT_DATA);
     this.vaultTasks = [];
     this.completedTasks = [];
+    this.writingRssFeeds = false;
   }
   async onload() {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const saved = await this.loadData();
     this.data = {
       schemaVersion: (_a = saved == null ? void 0 : saved.schemaVersion) != null ? _a : DEFAULT_DATA.schemaVersion,
@@ -606,16 +692,26 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       reminders: (_d = saved == null ? void 0 : saved.reminders) != null ? _d : [],
       rssFeeds: (_e = saved == null ? void 0 : saved.rssFeeds) != null ? _e : [],
       rssArticles: (_f = saved == null ? void 0 : saved.rssArticles) != null ? _f : [],
-      settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
+      dismissedRssLinks: (_g = saved == null ? void 0 : saved.dismissedRssLinks) != null ? _g : [],
+      settings: { ...DEFAULT_DATA.settings, ...(_h = saved == null ? void 0 : saved.settings) != null ? _h : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
     this.addRibbonIcon("home", "\u6253\u5F00\u6E05\u7B80\u9996\u9875", () => void this.openHome());
     this.addCommand({ id: "open-home", name: "\u6253\u5F00\u6E05\u7B80\u9996\u9875", callback: () => void this.openHome() });
     this.addSettingTab(new QingjianSettingTab(this.app, this));
-    this.registerEvent(this.app.vault.on("create", () => this.queueTaskScan()));
-    this.registerEvent(this.app.vault.on("modify", () => this.queueTaskScan()));
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      this.queueTaskScan();
+      this.queueRssFeedSync(file);
+    }));
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      this.queueTaskScan();
+      this.queueRssFeedSync(file);
+    }));
     this.registerEvent(this.app.vault.on("delete", () => this.queueTaskScan()));
-    this.registerEvent(this.app.vault.on("rename", () => this.queueTaskScan()));
+    this.registerEvent(this.app.vault.on("rename", (file) => {
+      this.queueTaskScan();
+      this.queueRssFeedSync(file);
+    }));
     this.app.workspace.onLayoutReady(() => {
       void this.initializeHome();
     });
@@ -655,6 +751,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       const feed = { id: uid(), title: parsed.title || url.hostname, url: url.toString(), lastUpdatedAt: Date.now() };
       this.data.rssFeeds.unshift(feed);
       this.mergeRssArticles(feed, parsed.articles);
+      await this.writeRssFeedsFile();
       await this.persist();
       new import_obsidian.Notice(`\u5DF2\u8BA2\u9605 ${feed.title}`);
     } catch (error) {
@@ -665,9 +762,29 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   async removeRssFeed(feedId) {
     this.data.rssFeeds = this.data.rssFeeds.filter((feed) => feed.id !== feedId);
     this.data.rssArticles = this.data.rssArticles.filter((article) => article.feedId !== feedId);
+    await this.writeRssFeedsFile();
     await this.persist();
   }
-  async refreshAllRssFeeds() {
+  openRssFeed(feed) {
+    new RssFeedModal(this.app, this, feed).open();
+  }
+  async refreshRssFeed(feedId) {
+    const feed = this.data.rssFeeds.find((entry) => entry.id === feedId);
+    if (!feed) return;
+    try {
+      const parsed = await this.fetchRssFeed(feed.url);
+      feed.title = parsed.title || feed.title;
+      feed.lastUpdatedAt = Date.now();
+      this.mergeRssArticles(feed, parsed.articles);
+      await this.writeRssFeedsFile();
+      await this.persist();
+      new import_obsidian.Notice(`\u5DF2\u5237\u65B0 ${feed.title}`);
+    } catch (error) {
+      console.error(`\u6E05\u7B80\u9996\u9875\u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
+      new import_obsidian.Notice("\u5237\u65B0\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+    }
+  }
+  async refreshAllRssFeeds(notify = true) {
     let success = 0;
     for (const feed of this.data.rssFeeds) {
       try {
@@ -681,10 +798,15 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       }
     }
     await this.persist();
-    new import_obsidian.Notice(success === this.data.rssFeeds.length ? "RSS \u5DF2\u5237\u65B0" : `\u5DF2\u5237\u65B0 ${success}/${this.data.rssFeeds.length} \u4E2A\u8BA2\u9605\u6E90`);
+    if (notify) new import_obsidian.Notice(success === this.data.rssFeeds.length ? "RSS \u5DF2\u5237\u65B0" : `\u5DF2\u5237\u65B0 ${success}/${this.data.rssFeeds.length} \u4E2A\u8BA2\u9605\u6E90`);
   }
   async toggleRssRead(article) {
     article.read = !article.read;
+    await this.persist();
+  }
+  async dismissRssArticle(article) {
+    if (!this.data.dismissedRssLinks.includes(article.link)) this.data.dismissedRssLinks.push(article.link);
+    this.data.rssArticles = this.data.rssArticles.filter((entry) => entry.id !== article.id);
     await this.persist();
   }
   async openRssArticle(article) {
@@ -733,6 +855,66 @@ ${content}
       if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
     }
   }
+  async writeRssFeedsFile() {
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    const lines = [
+      "# RSS\u8BA2\u9605",
+      "",
+      "> \u6B64\u6587\u4EF6\u7531\u6E05\u7B80\u9996\u9875\u7BA1\u7406\uFF0C\u7528\u4E8E\u5728 Windows \u4E0E iOS \u4E4B\u95F4\u540C\u6B65\u8BA2\u9605\u5730\u5740\u3002",
+      "",
+      ...this.data.rssFeeds.map((feed) => {
+        const label = feed.title.replace(/[\[\]]/g, "").trim() || feed.url;
+        const metadata = encodeURIComponent(JSON.stringify({ id: feed.id, title: feed.title, url: feed.url }));
+        return `- [${label}](${feed.url}) <!-- qj-rss-feed:${metadata} -->`;
+      }),
+      ""
+    ];
+    const content = lines.join("\n");
+    this.writingRssFeeds = true;
+    try {
+      const file = await this.getOrCreateFile(path, content);
+      if (await this.app.vault.read(file) !== content) await this.app.vault.modify(file, content);
+    } finally {
+      this.writingRssFeeds = false;
+    }
+  }
+  async syncRssFeedsFromVault(refreshAfter = true) {
+    if (this.writingRssFeeds) return;
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof import_obsidian.TFile)) {
+      await this.writeRssFeedsFile();
+      return;
+    }
+    const content = await this.app.vault.read(file);
+    const parsed = [];
+    for (const match of content.matchAll(/<!--\s*qj-rss-feed:([^\s]+)\s*-->/g)) {
+      try {
+        const value = JSON.parse(decodeURIComponent(match[1]));
+        if (!value.id || !value.url || !value.title) continue;
+        const url = new URL(value.url);
+        if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+        parsed.push({ id: value.id, title: value.title, url: url.toString() });
+      } catch (e) {
+      }
+    }
+    const before = JSON.stringify(this.data.rssFeeds.map(({ id, title, url }) => ({ id, title, url })));
+    const after = JSON.stringify(parsed);
+    if (before === after) return;
+    this.data.rssFeeds = parsed;
+    const feedIds = new Set(parsed.map((feed) => feed.id));
+    this.data.rssArticles = this.data.rssArticles.filter((article) => feedIds.has(article.feedId));
+    await this.saveData(this.data);
+    if (refreshAfter && parsed.length) await this.refreshAllRssFeeds(false);
+    else this.refreshViews();
+  }
+  queueRssFeedSync(file) {
+    if (this.writingRssFeeds) return;
+    const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "00_Inbox/\u6E05\u7B80\u9996\u9875-RSS\u8BA2\u9605.md");
+    if (file.path !== path) return;
+    if (this.rssSyncTimer !== void 0) window.clearTimeout(this.rssSyncTimer);
+    this.rssSyncTimer = window.setTimeout(() => void this.syncRssFeedsFromVault(), 400);
+  }
   async fetchRssFeed(url) {
     var _a, _b;
     const response = await (0, import_obsidian.requestUrl)({ url, method: "GET" });
@@ -764,6 +946,7 @@ ${content}
   }
   mergeRssArticles(feed, incoming) {
     incoming.forEach((entry) => {
+      if (this.data.dismissedRssLinks.includes(entry.link)) return;
       const existing = this.data.rssArticles.find((article) => article.link === entry.link);
       if (existing) {
         existing.title = entry.title;
@@ -1032,6 +1215,8 @@ ${content}
   }
   async initializeHome() {
     await this.ensureRssFavoritesFolder();
+    await this.syncRssFeedsFromVault(false);
+    if (this.data.rssFeeds.length) await this.refreshAllRssFeeds(false);
     await this.migrateLegacyTasks();
     await this.scanVaultTasks();
     if (this.data.settings.openOnStartup) await this.openHome();
