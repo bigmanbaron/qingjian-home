@@ -82,6 +82,37 @@ var NotePicker = class extends import_obsidian.FuzzySuggestModal {
     this.onChoose(file);
   }
 };
+var RssReaderModal = class extends import_obsidian.Modal {
+  constructor(app, plugin, article) {
+    super(app);
+    this.plugin = plugin;
+    this.article = article;
+  }
+  onOpen() {
+    this.modalEl.addClass("qj-rss-reader-modal");
+    this.titleEl.setText(this.article.title);
+    const meta = this.contentEl.createDiv({ cls: "qj-muted qj-rss-reader-meta" });
+    meta.setText(`${this.article.feedTitle} \xB7 ${displayTime(this.article.publishedAt)}`);
+    const actions = this.contentEl.createDiv({ cls: "qj-inline-actions qj-rss-reader-actions" });
+    const original = actions.createEl("button", { text: "\u6253\u5F00\u539F\u6587" });
+    original.addEventListener("click", () => window.open(this.article.link, "_blank", "noopener,noreferrer"));
+    const save = actions.createEl("button", { text: this.article.saved ? "\u5DF2\u6536\u85CF" : "\u6536\u85CF", cls: "qj-primary" });
+    save.disabled = this.article.saved;
+    save.addEventListener("click", async () => {
+      await this.plugin.saveRssArticle(this.article);
+      save.setText("\u5DF2\u6536\u85CF");
+      save.disabled = true;
+    });
+    const reader = this.contentEl.createDiv({ cls: "qj-rss-reader-content" });
+    reader.createDiv({ text: "\u6B63\u5728\u8BFB\u53D6\u5B8C\u6574\u5185\u5BB9\u2026", cls: "qj-empty" });
+    void this.loadContent(reader);
+  }
+  async loadContent(container) {
+    const content = await this.plugin.getRssArticleContent(this.article);
+    container.empty();
+    await import_obsidian.MarkdownRenderer.render(this.app, content, container, "", this.plugin);
+  }
+};
 var QingjianHomeView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -659,20 +690,27 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   async openRssArticle(article) {
     article.read = true;
     await this.saveData(this.data);
-    window.open(article.link, "_blank", "noopener,noreferrer");
+    new RssReaderModal(this.app, this, article).open();
     this.refreshViews();
+  }
+  async getRssArticleContent(article) {
+    var _a;
+    if ((_a = article.content) == null ? void 0 : _a.trim()) return article.content;
+    try {
+      const extracted = await this.extractQualityContent(article.link);
+      article.content = extracted.content;
+      await this.saveData(this.data);
+      return article.content;
+    } catch (error) {
+      console.warn("\u6E05\u7B80\u9996\u9875\u65E0\u6CD5\u8BFB\u53D6 RSS \u5B8C\u6574\u6B63\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u5185\u5BB9", error);
+      return `> \u5B8C\u6574\u6B63\u6587\u6682\u65F6\u65E0\u6CD5\u63D0\u53D6\uFF0C\u53EF\u70B9\u51FB\u201C\u6253\u5F00\u539F\u6587\u201D\u9605\u8BFB\u3002
+
+${article.summary || "\u8BE5\u8BA2\u9605\u6E90\u6CA1\u6709\u63D0\u4F9B\u6587\u7AE0\u6458\u8981\u3002"}`;
+    }
   }
   async saveRssArticle(article) {
     if (article.saved) return;
-    let content = `> \u6765\u6E90\uFF1A[${article.feedTitle}](${article.link})
-
-${article.summary}`.trim();
-    try {
-      const extracted = await this.extractQualityContent(article.link);
-      content = extracted.content;
-    } catch (error) {
-      console.warn("\u6E05\u7B80\u9996\u9875\u65E0\u6CD5\u63D0\u53D6 RSS \u539F\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u6458\u8981", error);
-    }
+    const content = await this.getRssArticleContent(article);
     const folder = (0, import_obsidian.normalizePath)(this.data.settings.rssFavoritesFolder.trim() || "12_RSS\u6536\u85CF");
     const safeTitle = article.title.replace(/[\\/:*?"<>|]/g, "-").trim() || "RSS\u6587\u7AE0";
     let path = this.asMarkdownPath(`${folder}/${dateKey(new Date(article.publishedAt))}-${safeTitle}`);

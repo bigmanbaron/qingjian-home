@@ -3,6 +3,8 @@ import {
   FuzzySuggestModal,
   htmlToMarkdown,
   ItemView,
+  MarkdownRenderer,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -79,6 +81,7 @@ interface RssArticle {
   summary: string;
   read: boolean;
   saved: boolean;
+  content?: string;
 }
 
 interface HomeSettings {
@@ -169,6 +172,43 @@ class NotePicker extends FuzzySuggestModal<TAbstractFile> {
 
   onChooseItem(file: TAbstractFile): void {
     this.onChoose(file);
+  }
+}
+
+class RssReaderModal extends Modal {
+  private plugin: QingjianHomePlugin;
+  private article: RssArticle;
+
+  constructor(app: App, plugin: QingjianHomePlugin, article: RssArticle) {
+    super(app);
+    this.plugin = plugin;
+    this.article = article;
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("qj-rss-reader-modal");
+    this.titleEl.setText(this.article.title);
+    const meta = this.contentEl.createDiv({ cls: "qj-muted qj-rss-reader-meta" });
+    meta.setText(`${this.article.feedTitle} · ${displayTime(this.article.publishedAt)}`);
+    const actions = this.contentEl.createDiv({ cls: "qj-inline-actions qj-rss-reader-actions" });
+    const original = actions.createEl("button", { text: "打开原文" });
+    original.addEventListener("click", () => window.open(this.article.link, "_blank", "noopener,noreferrer"));
+    const save = actions.createEl("button", { text: this.article.saved ? "已收藏" : "收藏", cls: "qj-primary" });
+    save.disabled = this.article.saved;
+    save.addEventListener("click", async () => {
+      await this.plugin.saveRssArticle(this.article);
+      save.setText("已收藏");
+      save.disabled = true;
+    });
+    const reader = this.contentEl.createDiv({ cls: "qj-rss-reader-content" });
+    reader.createDiv({ text: "正在读取完整内容…", cls: "qj-empty" });
+    void this.loadContent(reader);
+  }
+
+  private async loadContent(container: HTMLElement): Promise<void> {
+    const content = await this.plugin.getRssArticleContent(this.article);
+    container.empty();
+    await MarkdownRenderer.render(this.app, content, container, "", this.plugin);
   }
 }
 
@@ -840,19 +880,26 @@ export default class QingjianHomePlugin extends Plugin {
   async openRssArticle(article: RssArticle): Promise<void> {
     article.read = true;
     await this.saveData(this.data);
-    window.open(article.link, "_blank", "noopener,noreferrer");
+    new RssReaderModal(this.app, this, article).open();
     this.refreshViews();
+  }
+
+  async getRssArticleContent(article: RssArticle): Promise<string> {
+    if (article.content?.trim()) return article.content;
+    try {
+      const extracted = await this.extractQualityContent(article.link);
+      article.content = extracted.content;
+      await this.saveData(this.data);
+      return article.content;
+    } catch (error) {
+      console.warn("清简首页无法读取 RSS 完整正文，改用订阅内容", error);
+      return `> 完整正文暂时无法提取，可点击“打开原文”阅读。\n\n${article.summary || "该订阅源没有提供文章摘要。"}`;
+    }
   }
 
   async saveRssArticle(article: RssArticle): Promise<void> {
     if (article.saved) return;
-    let content = `> 来源：[${article.feedTitle}](${article.link})\n\n${article.summary}`.trim();
-    try {
-      const extracted = await this.extractQualityContent(article.link);
-      content = extracted.content;
-    } catch (error) {
-      console.warn("清简首页无法提取 RSS 原文，改用订阅摘要", error);
-    }
+    const content = await this.getRssArticleContent(article);
     const folder = normalizePath(this.data.settings.rssFavoritesFolder.trim() || "12_RSS收藏");
     const safeTitle = article.title.replace(/[\\/:*?"<>|]/g, "-").trim() || "RSS文章";
     let path = this.asMarkdownPath(`${folder}/${dateKey(new Date(article.publishedAt))}-${safeTitle}`);
