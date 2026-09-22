@@ -1,10 +1,10 @@
-# 清简首页
+# DECK
 
 一个面向个人使用的轻量 Obsidian 首页插件。
 
 ## 功能
 
-- 首页顶部 RSS 阅读：按订阅源数量混合显示3条文章；点击订阅源查看其全部文章，点击标题在 Obsidian 内阅读完整正文
+- 首页顶部 RSS 阅读：按订阅源数量混合显示4条文章；点击订阅源查看其全部文章，点击标题在 Obsidian 内阅读完整正文
 - RSS订阅地址写入 `13_RSS订阅/订阅列表.md`，可随普通笔记在 Windows 与 iOS 间同步；文章仅在收藏后写入 `12_RSS收藏`
 - 自动扫描库内现有 Markdown 待办并汇总；新待办记录创建日期
 - 仅“急 / 缓”两级待办，优先级直接用加粗彩色文字呈现；旧待办默认归为“缓”
@@ -19,14 +19,14 @@
 ## 本地安装
 
 1. 执行 `npm install` 和 `npm run build`
-2. 将 `manifest.json`、`main.js`、`styles.css` 复制到库内 `.obsidian/plugins/qingjian-home/`
-3. 在 Obsidian 的社区插件设置中启用“清简首页”
+2. 将 `manifest.json`、`main.js`、`styles.css` 复制到库内 `.obsidian/plugins/deck-home/`
+3. 在 Obsidian 的社区插件设置中启用“DECK”
 
 ## 使用 BRAT 安装
 
 1. 在 Obsidian 社区插件中安装并启用 BRAT
 2. 在 BRAT 中选择 **Add a beta plugin**
 3. 输入本仓库地址，选择最新版并安装
-4. 回到社区插件列表启用“清简首页”
+4. 回到社区插件列表启用“DECK”
 
 提醒依赖 Obsidian 正在运行；移动端系统关闭 Obsidian 后无法保证后台提醒。

@@ -182,7 +182,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     return VIEW_TYPE;
   }
   getDisplayText() {
-    return "\u6E05\u7B80\u9996\u9875";
+    return "DECK";
   }
   getIcon() {
     return "home";
@@ -218,7 +218,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const title = header.createDiv();
     title.createEl("h1", { text: `${greeting}\uFF0CBaron` });
     title.createEl("p", {
-      text: `\u4ECA\u5929\u662F${new Intl.DateTimeFormat("zh-CN", {
+      text: `\u4ECA\u5929\u662F ${new Intl.DateTimeFormat("zh-CN", {
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -467,7 +467,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         this.drafts.set("moment-text", textarea.value);
         new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${links.length} \u5F20\u56FE\u7247`);
       } catch (error) {
-        console.error("\u6E05\u7B80\u9996\u9875\u4FDD\u5B58\u56FE\u7247\u5931\u8D25", error);
+        console.error("DECK \u4FDD\u5B58\u56FE\u7247\u5931\u8D25", error);
         new import_obsidian.Notice("\u56FE\u7247\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
       } finally {
         imageInput.value = "";
@@ -612,7 +612,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         this.drafts.set("quality-content", contentInput.value);
         status.setText("\u63D0\u53D6\u5B8C\u6210\uFF0C\u53EF\u7EE7\u7EED\u7F16\u8F91\u540E\u4FDD\u5B58");
       } catch (error) {
-        console.error("\u6E05\u7B80\u9996\u9875\u63D0\u53D6\u5185\u5BB9\u5931\u8D25", error);
+        console.error("DECK \u63D0\u53D6\u5185\u5BB9\u5931\u8D25", error);
         status.setText("\u63D0\u53D6\u5931\u8D25\uFF0C\u53EF\u76F4\u63A5\u5728\u6587\u672C\u6846\u7C98\u8D34\u5185\u5BB9");
         new import_obsidian.Notice("\u7F51\u9875\u63D0\u53D6\u5931\u8D25\uFF0C\u53EF\u80FD\u9700\u8981\u767B\u5F55\u6216\u5C5E\u4E8E\u52A8\u6001\u9875\u9762");
       } finally {
@@ -659,8 +659,8 @@ var QingjianSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "\u6E05\u7B80\u9996\u9875\u8BBE\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("\u542F\u52A8\u65F6\u6253\u5F00\u9996\u9875").setDesc("Obsidian \u542F\u52A8\u5E76\u5B8C\u6210\u5E03\u5C40\u540E\u6253\u5F00\u6E05\u7B80\u9996\u9875\u3002").addToggle((toggle) => toggle.setValue(this.plugin.data.settings.openOnStartup).onChange(async (value) => {
+    containerEl.createEl("h2", { text: "DECK \u8BBE\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("\u542F\u52A8\u65F6\u6253\u5F00\u9996\u9875").setDesc("Obsidian \u542F\u52A8\u5E76\u5B8C\u6210\u5E03\u5C40\u540E\u6253\u5F00 DECK\u3002").addToggle((toggle) => toggle.setValue(this.plugin.data.settings.openOnStartup).onChange(async (value) => {
       this.plugin.data.settings.openOnStartup = value;
       await this.plugin.persist();
     }));
@@ -719,8 +719,8 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
-    this.addRibbonIcon("home", "\u6253\u5F00\u6E05\u7B80\u9996\u9875", () => void this.openHome());
-    this.addCommand({ id: "open-home", name: "\u6253\u5F00\u6E05\u7B80\u9996\u9875", callback: () => void this.openHome() });
+    this.addRibbonIcon("home", "\u6253\u5F00 DECK", () => void this.openHome());
+    this.addCommand({ id: "open-home", name: "\u6253\u5F00 DECK", callback: () => void this.openHome() });
     this.addSettingTab(new QingjianSettingTab(this.app, this));
     this.registerEvent(this.app.vault.on("create", (file) => {
       this.queueTaskScan();
@@ -782,7 +782,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       await this.persist();
       new import_obsidian.Notice(`\u5DF2\u8BA2\u9605 ${feed.title}`);
     } catch (error) {
-      console.error("\u6E05\u7B80\u9996\u9875\u8BFB\u53D6 RSS \u5931\u8D25", error);
+      console.error("DECK \u8BFB\u53D6 RSS \u5931\u8D25", error);
       new import_obsidian.Notice("\u65E0\u6CD5\u8BFB\u53D6\u8BE5\u8BA2\u9605\u6E90\uFF0C\u8BF7\u68C0\u67E5\u5730\u5740");
     }
   }
@@ -807,7 +807,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       await this.persist();
       if (notify) new import_obsidian.Notice(`\u5DF2\u5237\u65B0 ${feed.title}`);
     } catch (error) {
-      console.error(`\u6E05\u7B80\u9996\u9875\u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
+      console.error(`DECK \u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
       if (notify) new import_obsidian.Notice("\u5237\u65B0\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
     }
   }
@@ -821,7 +821,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
         this.mergeRssArticles(feed, parsed.articles);
         success += 1;
       } catch (error) {
-        console.error(`\u6E05\u7B80\u9996\u9875\u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
+        console.error(`DECK \u5237\u65B0 RSS \u5931\u8D25\uFF1A${feed.url}`, error);
       }
     }
     await this.persist();
@@ -849,7 +849,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       article.content = extracted.content;
       return article.content;
     } catch (error) {
-      console.warn("\u6E05\u7B80\u9996\u9875\u65E0\u6CD5\u8BFB\u53D6 RSS \u5B8C\u6574\u6B63\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u5185\u5BB9", error);
+      console.warn("DECK \u65E0\u6CD5\u8BFB\u53D6 RSS \u5B8C\u6574\u6B63\u6587\uFF0C\u6539\u7528\u8BA2\u9605\u5185\u5BB9", error);
       return `> \u5B8C\u6574\u6B63\u6587\u6682\u65F6\u65E0\u6CD5\u63D0\u53D6\uFF0C\u53EF\u70B9\u51FB\u201C\u6253\u5F00\u539F\u6587\u201D\u9605\u8BFB\u3002
 
 ${article.summary || "\u8BE5\u8BA2\u9605\u6E90\u6CA1\u6709\u63D0\u4F9B\u6587\u7AE0\u6458\u8981\u3002"}`;
@@ -887,7 +887,7 @@ ${content}
     const lines = [
       "# RSS\u8BA2\u9605",
       "",
-      "> \u6B64\u6587\u4EF6\u7531\u6E05\u7B80\u9996\u9875\u7BA1\u7406\uFF0C\u7528\u4E8E\u5728 Windows \u4E0E iOS \u4E4B\u95F4\u540C\u6B65\u8BA2\u9605\u5730\u5740\u3002",
+      "> \u6B64\u6587\u4EF6\u7531 DECK \u7BA1\u7406\uFF0C\u7528\u4E8E\u5728 Windows \u4E0E iOS \u4E4B\u95F4\u540C\u6B65\u8BA2\u9605\u5730\u5740\u3002",
       "",
       ...this.data.rssFeeds.map((feed) => {
         const label = feed.title.replace(/[\[\]]/g, "").trim() || feed.url;

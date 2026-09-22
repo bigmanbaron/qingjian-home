@@ -295,7 +295,7 @@ class QingjianHomeView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "清简首页";
+    return "DECK";
   }
 
   getIcon(): string {
@@ -337,7 +337,7 @@ class QingjianHomeView extends ItemView {
     const title = header.createDiv();
     title.createEl("h1", { text: `${greeting}，Baron` });
     title.createEl("p", {
-      text: `今天是${new Intl.DateTimeFormat("zh-CN", {
+      text: `今天是 ${new Intl.DateTimeFormat("zh-CN", {
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -607,7 +607,7 @@ class QingjianHomeView extends ItemView {
         this.drafts.set("moment-text", textarea.value);
         new Notice(`已添加 ${links.length} 张图片`);
       } catch (error) {
-        console.error("清简首页保存图片失败", error);
+        console.error("DECK 保存图片失败", error);
         new Notice("图片保存失败，请重试");
       } finally {
         imageInput.value = "";
@@ -758,7 +758,7 @@ class QingjianHomeView extends ItemView {
         this.drafts.set("quality-content", contentInput.value);
         status.setText("提取完成，可继续编辑后保存");
       } catch (error) {
-        console.error("清简首页提取内容失败", error);
+        console.error("DECK 提取内容失败", error);
         status.setText("提取失败，可直接在文本框粘贴内容");
         new Notice("网页提取失败，可能需要登录或属于动态页面");
       } finally {
@@ -813,11 +813,11 @@ class QingjianSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "清简首页设置" });
+    containerEl.createEl("h2", { text: "DECK 设置" });
 
     new Setting(containerEl)
       .setName("启动时打开首页")
-      .setDesc("Obsidian 启动并完成布局后打开清简首页。")
+      .setDesc("Obsidian 启动并完成布局后打开 DECK。")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.data.settings.openOnStartup)
         .onChange(async (value) => {
@@ -924,8 +924,8 @@ export default class QingjianHomePlugin extends Plugin {
     };
 
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
-    this.addRibbonIcon("home", "打开清简首页", () => void this.openHome());
-    this.addCommand({ id: "open-home", name: "打开清简首页", callback: () => void this.openHome() });
+    this.addRibbonIcon("home", "打开 DECK", () => void this.openHome());
+    this.addCommand({ id: "open-home", name: "打开 DECK", callback: () => void this.openHome() });
     this.addSettingTab(new QingjianSettingTab(this.app, this));
 
     this.registerEvent(this.app.vault.on("create", (file) => {
@@ -992,7 +992,7 @@ export default class QingjianHomePlugin extends Plugin {
       await this.persist();
       new Notice(`已订阅 ${feed.title}`);
     } catch (error) {
-      console.error("清简首页读取 RSS 失败", error);
+      console.error("DECK 读取 RSS 失败", error);
       new Notice("无法读取该订阅源，请检查地址");
     }
   }
@@ -1020,7 +1020,7 @@ export default class QingjianHomePlugin extends Plugin {
       await this.persist();
       if (notify) new Notice(`已刷新 ${feed.title}`);
     } catch (error) {
-      console.error(`清简首页刷新 RSS 失败：${feed.url}`, error);
+      console.error(`DECK 刷新 RSS 失败：${feed.url}`, error);
       if (notify) new Notice("刷新失败，请稍后重试");
     }
   }
@@ -1035,7 +1035,7 @@ export default class QingjianHomePlugin extends Plugin {
         this.mergeRssArticles(feed, parsed.articles);
         success += 1;
       } catch (error) {
-        console.error(`清简首页刷新 RSS 失败：${feed.url}`, error);
+        console.error(`DECK 刷新 RSS 失败：${feed.url}`, error);
       }
     }
     await this.persist();
@@ -1066,7 +1066,7 @@ export default class QingjianHomePlugin extends Plugin {
       article.content = extracted.content;
       return article.content;
     } catch (error) {
-      console.warn("清简首页无法读取 RSS 完整正文，改用订阅内容", error);
+      console.warn("DECK 无法读取 RSS 完整正文，改用订阅内容", error);
       return `> 完整正文暂时无法提取，可点击“打开原文”阅读。\n\n${article.summary || "该订阅源没有提供文章摘要。"}`;
     }
   }
@@ -1102,7 +1102,7 @@ export default class QingjianHomePlugin extends Plugin {
     const lines = [
       "# RSS订阅",
       "",
-      "> 此文件由清简首页管理，用于在 Windows 与 iOS 之间同步订阅地址。",
+      "> 此文件由 DECK 管理，用于在 Windows 与 iOS 之间同步订阅地址。",
       "",
       ...this.data.rssFeeds.map((feed) => {
         const label = feed.title.replace(/[\[\]]/g, "").trim() || feed.url;
