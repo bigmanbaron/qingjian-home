@@ -884,6 +884,8 @@ export default class QingjianHomePlugin extends Plugin {
   private reminderTimer?: number;
   private taskScanTimer?: number;
   private rssSyncTimer?: number;
+  private rssConfigTimer?: number;
+  private rssSyncInFlight = false;
   private writingRssFeeds = false;
 
   async onload(): Promise<void> {
@@ -923,6 +925,8 @@ export default class QingjianHomePlugin extends Plugin {
     });
     this.reminderTimer = window.setInterval(() => void this.checkReminders(), 30_000);
     this.registerInterval(this.reminderTimer);
+    this.rssConfigTimer = window.setInterval(() => void this.pollRssFeedsFromVault(), 5_000);
+    this.registerInterval(this.rssConfigTimer);
   }
 
   async openHome(): Promise<void> {
@@ -1098,7 +1102,7 @@ export default class QingjianHomePlugin extends Plugin {
     const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS订阅/订阅列表.md");
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      await this.writeRssFeedsFile();
+      if (this.data.rssFeeds.length) await this.writeRssFeedsFile();
       return;
     }
     const content = await this.app.vault.read(file);
@@ -1130,7 +1134,17 @@ export default class QingjianHomePlugin extends Plugin {
     const path = this.asMarkdownPath(this.data.settings.rssFeedsPath || "13_RSS订阅/订阅列表.md");
     if (file.path !== path) return;
     if (this.rssSyncTimer !== undefined) window.clearTimeout(this.rssSyncTimer);
-    this.rssSyncTimer = window.setTimeout(() => void this.syncRssFeedsFromVault(), 400);
+    this.rssSyncTimer = window.setTimeout(() => void this.pollRssFeedsFromVault(), 400);
+  }
+
+  private async pollRssFeedsFromVault(): Promise<void> {
+    if (this.rssSyncInFlight) return;
+    this.rssSyncInFlight = true;
+    try {
+      await this.syncRssFeedsFromVault();
+    } finally {
+      this.rssSyncInFlight = false;
+    }
   }
 
   private async fetchRssFeed(url: string): Promise<{ title: string; articles: Array<Omit<RssArticle, "id" | "feedId" | "feedTitle" | "read" | "saved">> }> {
