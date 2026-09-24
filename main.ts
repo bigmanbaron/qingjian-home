@@ -3,6 +3,7 @@ import {
   FuzzySuggestModal,
   htmlToMarkdown,
   ItemView,
+  MarkdownView,
   MarkdownRenderer,
   Modal,
   Notice,
@@ -104,6 +105,11 @@ interface HomeData {
   rssArticles: RssArticle[];
   dismissedRssLinks: string[];
   settings: HomeSettings;
+}
+
+interface ReadingPosition {
+  top: number;
+  updatedAt: number;
 }
 
 const DEFAULT_DATA: HomeData = {
@@ -909,6 +915,9 @@ export default class QingjianHomePlugin extends Plugin {
   private rssConfigTimer?: number;
   private rssSyncInFlight = false;
   private writingRssFeeds = false;
+  private readingPositions: Record<string, ReadingPosition> = {};
+  private readingPositionSaveTimer?: number;
+  private readingPositionRestoreTimer?: number;
 
   async onload(): Promise<void> {
     const saved = (await this.loadData()) as Partial<HomeData> | null;
@@ -927,6 +936,18 @@ export default class QingjianHomePlugin extends Plugin {
     this.addRibbonIcon("home", "打开 DECK", () => void this.openHome());
     this.addCommand({ id: "open-home", name: "打开 DECK", callback: () => void this.openHome() });
     this.addSettingTab(new QingjianSettingTab(this.app, this));
+    this.loadReadingPositions();
+
+    this.registerDomEvent(this.app.workspace.containerEl, "scroll", (event) => {
+      this.captureReadingPosition(event);
+    }, true);
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file instanceof TFile) this.scheduleReadingPositionRestore(file.path);
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      const view = leaf?.view;
+      if (view instanceof MarkdownView && view.file) this.scheduleReadingPositionRestore(view.file.path);
+    }));
 
     this.registerEvent(this.app.vault.on("create", (file) => {
       this.queueTaskScan();
@@ -944,11 +965,78 @@ export default class QingjianHomePlugin extends Plugin {
 
     this.app.workspace.onLayoutReady(() => {
       void this.initializeHome();
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view?.file) this.scheduleReadingPositionRestore(view.file.path);
     });
     this.reminderTimer = window.setInterval(() => void this.checkReminders(), 30_000);
     this.registerInterval(this.reminderTimer);
     this.rssConfigTimer = window.setInterval(() => void this.pollRssFeedsFromVault(), 5_000);
     this.registerInterval(this.rssConfigTimer);
+  }
+
+  onunload(): void {
+    if (this.readingPositionSaveTimer !== undefined) window.clearTimeout(this.readingPositionSaveTimer);
+    if (this.readingPositionRestoreTimer !== undefined) window.clearTimeout(this.readingPositionRestoreTimer);
+    this.saveReadingPositions();
+  }
+
+  private get readingPositionsKey(): string {
+    return `deck-home-reading-positions:${encodeURIComponent(this.app.vault.getName())}`;
+  }
+
+  private loadReadingPositions(): void {
+    try {
+      const saved = window.localStorage.getItem(this.readingPositionsKey);
+      this.readingPositions = saved ? JSON.parse(saved) as Record<string, ReadingPosition> : {};
+    } catch {
+      this.readingPositions = {};
+    }
+  }
+
+  private captureReadingPosition(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.matches(".markdown-preview-view, .cm-scroller")) return;
+    const leaf = this.app.workspace.getLeavesOfType("markdown").find((candidate) => {
+      const view = candidate.view;
+      return view instanceof MarkdownView && view.contentEl.contains(target);
+    });
+    const view = leaf?.view;
+    if (!(view instanceof MarkdownView) || !view.file) return;
+    this.readingPositions[view.file.path] = { top: target.scrollTop, updatedAt: Date.now() };
+    this.queueReadingPositionsSave();
+  }
+
+  private scheduleReadingPositionRestore(path: string): void {
+    if (this.readingPositionRestoreTimer !== undefined) window.clearTimeout(this.readingPositionRestoreTimer);
+    this.readingPositionRestoreTimer = window.setTimeout(() => {
+      this.readingPositionRestoreTimer = undefined;
+      const position = this.readingPositions[path];
+      if (!position) return;
+      const leaf = this.app.workspace.getLeavesOfType("markdown").find((candidate) => {
+        const view = candidate.view;
+        return view instanceof MarkdownView && view.file?.path === path;
+      });
+      const view = leaf?.view;
+      if (!(view instanceof MarkdownView)) return;
+      const selector = view.getMode() === "preview" ? ".markdown-preview-view" : ".cm-scroller";
+      view.contentEl.querySelector<HTMLElement>(selector)?.scrollTo({ top: position.top, behavior: "auto" });
+    }, 120);
+  }
+
+  private queueReadingPositionsSave(): void {
+    if (this.readingPositionSaveTimer !== undefined) window.clearTimeout(this.readingPositionSaveTimer);
+    this.readingPositionSaveTimer = window.setTimeout(() => {
+      this.readingPositionSaveTimer = undefined;
+      this.saveReadingPositions();
+    }, 300);
+  }
+
+  private saveReadingPositions(): void {
+    const recent = Object.entries(this.readingPositions)
+      .sort(([, left], [, right]) => right.updatedAt - left.updatedAt)
+      .slice(0, 500);
+    this.readingPositions = Object.fromEntries(recent);
+    window.localStorage.setItem(this.readingPositionsKey, JSON.stringify(this.readingPositions));
   }
 
   async openHome(): Promise<void> {

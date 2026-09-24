@@ -704,6 +704,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.completedTasks = [];
     this.rssSyncInFlight = false;
     this.writingRssFeeds = false;
+    this.readingPositions = {};
   }
   async onload() {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -722,6 +723,17 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     this.addRibbonIcon("home", "\u6253\u5F00 DECK", () => void this.openHome());
     this.addCommand({ id: "open-home", name: "\u6253\u5F00 DECK", callback: () => void this.openHome() });
     this.addSettingTab(new QingjianSettingTab(this.app, this));
+    this.loadReadingPositions();
+    this.registerDomEvent(this.app.workspace.containerEl, "scroll", (event) => {
+      this.captureReadingPosition(event);
+    }, true);
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file instanceof import_obsidian.TFile) this.scheduleReadingPositionRestore(file.path);
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      const view = leaf == null ? void 0 : leaf.view;
+      if (view instanceof import_obsidian.MarkdownView && view.file) this.scheduleReadingPositionRestore(view.file.path);
+    }));
     this.registerEvent(this.app.vault.on("create", (file) => {
       this.queueTaskScan();
       this.queueRssFeedSync(file);
@@ -737,11 +749,71 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     }));
     this.app.workspace.onLayoutReady(() => {
       void this.initializeHome();
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+      if (view == null ? void 0 : view.file) this.scheduleReadingPositionRestore(view.file.path);
     });
     this.reminderTimer = window.setInterval(() => void this.checkReminders(), 3e4);
     this.registerInterval(this.reminderTimer);
     this.rssConfigTimer = window.setInterval(() => void this.pollRssFeedsFromVault(), 5e3);
     this.registerInterval(this.rssConfigTimer);
+  }
+  onunload() {
+    if (this.readingPositionSaveTimer !== void 0) window.clearTimeout(this.readingPositionSaveTimer);
+    if (this.readingPositionRestoreTimer !== void 0) window.clearTimeout(this.readingPositionRestoreTimer);
+    this.saveReadingPositions();
+  }
+  get readingPositionsKey() {
+    return `deck-home-reading-positions:${encodeURIComponent(this.app.vault.getName())}`;
+  }
+  loadReadingPositions() {
+    try {
+      const saved = window.localStorage.getItem(this.readingPositionsKey);
+      this.readingPositions = saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      this.readingPositions = {};
+    }
+  }
+  captureReadingPosition(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.matches(".markdown-preview-view, .cm-scroller")) return;
+    const leaf = this.app.workspace.getLeavesOfType("markdown").find((candidate) => {
+      const view2 = candidate.view;
+      return view2 instanceof import_obsidian.MarkdownView && view2.contentEl.contains(target);
+    });
+    const view = leaf == null ? void 0 : leaf.view;
+    if (!(view instanceof import_obsidian.MarkdownView) || !view.file) return;
+    this.readingPositions[view.file.path] = { top: target.scrollTop, updatedAt: Date.now() };
+    this.queueReadingPositionsSave();
+  }
+  scheduleReadingPositionRestore(path) {
+    if (this.readingPositionRestoreTimer !== void 0) window.clearTimeout(this.readingPositionRestoreTimer);
+    this.readingPositionRestoreTimer = window.setTimeout(() => {
+      var _a;
+      this.readingPositionRestoreTimer = void 0;
+      const position = this.readingPositions[path];
+      if (!position) return;
+      const leaf = this.app.workspace.getLeavesOfType("markdown").find((candidate) => {
+        var _a2;
+        const view2 = candidate.view;
+        return view2 instanceof import_obsidian.MarkdownView && ((_a2 = view2.file) == null ? void 0 : _a2.path) === path;
+      });
+      const view = leaf == null ? void 0 : leaf.view;
+      if (!(view instanceof import_obsidian.MarkdownView)) return;
+      const selector = view.getMode() === "preview" ? ".markdown-preview-view" : ".cm-scroller";
+      (_a = view.contentEl.querySelector(selector)) == null ? void 0 : _a.scrollTo({ top: position.top, behavior: "auto" });
+    }, 120);
+  }
+  queueReadingPositionsSave() {
+    if (this.readingPositionSaveTimer !== void 0) window.clearTimeout(this.readingPositionSaveTimer);
+    this.readingPositionSaveTimer = window.setTimeout(() => {
+      this.readingPositionSaveTimer = void 0;
+      this.saveReadingPositions();
+    }, 300);
+  }
+  saveReadingPositions() {
+    const recent = Object.entries(this.readingPositions).sort(([, left], [, right]) => right.updatedAt - left.updatedAt).slice(0, 500);
+    this.readingPositions = Object.fromEntries(recent);
+    window.localStorage.setItem(this.readingPositionsKey, JSON.stringify(this.readingPositions));
   }
   async openHome() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
