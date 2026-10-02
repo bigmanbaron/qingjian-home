@@ -25,11 +25,35 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var VIEW_TYPE = "qingjian-home-view";
 var RSS_CATEGORIES = [
+  { id: "seo", label: "SEO" },
+  { id: "geo", label: "GEO" },
   { id: "technology", label: "\u79D1\u6280" },
   { id: "news", label: "\u65B0\u95FB" },
   { id: "business", label: "\u5546\u4E1A" },
   { id: "fashion", label: "\u65F6\u5C1A" },
+  { id: "books", label: "\u65B0\u4E66\u4E66\u8BC4" },
+  { id: "humanities", label: "\u4EBA\u6587" },
+  { id: "psychology", label: "\u5FC3\u7406" },
+  { id: "social", label: "X \u70ED\u95E8" },
   { id: "other", label: "\u5176\u4ED6" }
+];
+var LEGACY_RSS_CATEGORIES = ["technology", "news", "business", "fashion", "other"];
+var CURATED_RSS_SOURCES = [
+  { id: "google-search-central", title: "Google Search Central", category: "seo", description: "Google \u5B98\u65B9\u641C\u7D22\u4E0E SEO \u66F4\u65B0", url: "https://developers.google.com/search/blog/feed.xml" },
+  { id: "search-engine-journal", title: "Search Engine Journal", category: "seo", description: "SEO\u3001\u641C\u7D22\u8425\u9500\u4E0E\u884C\u4E1A\u52A8\u6001", url: "https://www.searchenginejournal.com/feed/" },
+  { id: "geo-news", title: "GEO / AI Search", category: "geo", description: "\u751F\u6210\u5F0F\u5F15\u64CE\u4F18\u5316\u4E0E AI \u641C\u7D22\u8D44\u8BAF", url: "https://news.google.com/rss/search?q=%22generative%20engine%20optimization%22%20OR%20%22AI%20search%20optimization%22&hl=en-US&gl=US&ceid=US:en" },
+  { id: "ars-technica", title: "Ars Technica", category: "technology", description: "\u79D1\u6280\u3001\u79D1\u5B66\u4E0E\u6570\u7801\u8D8B\u52BF", url: "https://feeds.arstechnica.com/arstechnica/index" },
+  { id: "techcrunch", title: "TechCrunch", category: "technology", description: "\u79D1\u6280\u516C\u53F8\u4E0E\u521B\u4E1A\u52A8\u6001", url: "https://techcrunch.com/feed/" },
+  { id: "the-verge", title: "The Verge", category: "technology", description: "\u6D88\u8D39\u79D1\u6280\u4E0E\u4E92\u8054\u7F51\u6587\u5316", url: "https://www.theverge.com/rss/index.xml" },
+  { id: "bbc-world", title: "BBC World", category: "news", description: "\u5168\u7403\u65B0\u95FB", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { id: "npr-world", title: "NPR World", category: "news", description: "\u56FD\u9645\u65B0\u95FB\u4E0E\u6DF1\u5EA6\u62A5\u9053", url: "https://feeds.npr.org/1004/rss.xml" },
+  { id: "bbc-business", title: "BBC Business", category: "business", description: "\u5546\u4E1A\u4E0E\u7ECF\u6D4E\u65B0\u95FB", url: "https://feeds.bbci.co.uk/news/business/rss.xml" },
+  { id: "guardian-fashion", title: "The Guardian Fashion", category: "fashion", description: "\u65F6\u5C1A\u4EA7\u4E1A\u4E0E\u8D8B\u52BF", url: "https://www.theguardian.com/fashion/rss" },
+  { id: "fashionista", title: "Fashionista", category: "fashion", description: "\u65F6\u5C1A\u5546\u4E1A\u4E0E\u54C1\u724C\u52A8\u6001", url: "https://fashionista.com/.rss/full/" },
+  { id: "literary-hub", title: "Literary Hub", category: "books", description: "\u65B0\u4E66\u3001\u4E66\u8BC4\u4E0E\u6587\u5B66\u52A8\u6001", url: "https://lithub.com/feed/" },
+  { id: "aeon", title: "Aeon", category: "humanities", description: "\u54F2\u5B66\u3001\u6587\u5316\u3001\u793E\u4F1A\u4E0E\u601D\u60F3\u957F\u6587", url: "https://aeon.co/feed.rss" },
+  { id: "psychology-today", title: "Psychology Today", category: "psychology", description: "\u5FC3\u7406\u5B66\u77E5\u8BC6\u4E0E\u751F\u6D3B\u5B9E\u8DF5", url: "https://www.psychologytoday.com/us/front/feed" },
+  { id: "x-trends", title: "X \u70ED\u95E8\u8D8B\u52BF", category: "social", description: "\u9700\u8981\u652F\u6301 X \u63A5\u53E3\u7684\u7B2C\u4E09\u65B9 RSSHub \u5B9E\u4F8B", rssHubPath: "/twitter/trends/1" }
 ];
 var DEFAULT_DATA = {
   schemaVersion: 1,
@@ -59,6 +83,12 @@ function isRssCategory(value) {
 }
 function inferRssCategory(title, url) {
   const value = `${title} ${url}`.toLowerCase();
+  if (/generative.engine.optimization|\bgeo\b|ai.search.optimization/.test(value)) return "geo";
+  if (/search.engine|search.central|\bseo\b|webmaster/.test(value)) return "seo";
+  if (/twitter|x\.com|social.media|trends/.test(value)) return "social";
+  if (/psychology|mental.health|behavior|cognitive/.test(value)) return "psychology";
+  if (/literary|book.review|\bbooks?\b|publishing/.test(value)) return "books";
+  if (/humanit|philosophy|culture|history|society|aeon/.test(value)) return "humanities";
   if (/fashion|style|vogue|textile|apparel|clothing|garment/.test(value)) return "fashion";
   if (/technology|\btech\b|science|artificial.intelligence|\bai\b|computer|software|gadget|wired|theverge/.test(value)) return "technology";
   if (/business|finance|financial|market|econom|money|invest|stock|commerce/.test(value)) return "business";
@@ -217,6 +247,51 @@ var RssCategoryModal = class extends import_obsidian.Modal {
     });
   }
 };
+var CuratedRssModal = class extends import_obsidian.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+  onOpen() {
+    this.modalEl.addClass("qj-rss-curated-modal");
+    this.titleEl.setText("\u5185\u7F6E RSS \u6E90\u5E93");
+    this.contentEl.createDiv({ text: "\u52FE\u9009\u9700\u8981\u7684\u5185\u5BB9\u6E90\u3002\u5DF2\u8BA2\u9605\u7684\u6E90\u4E0D\u4F1A\u91CD\u590D\u6DFB\u52A0\u3002", cls: "qj-muted" });
+    const rssHubRow = this.contentEl.createDiv({ cls: "qj-rsshub-row" });
+    rssHubRow.createDiv({ text: "RSSHub \u5730\u5740\uFF08\u4EC5\u7528\u4E8E X \u70ED\u95E8\uFF09", cls: "qj-rsshub-label" });
+    const rssHubInput = rssHubRow.createEl("input", { type: "url", value: "https://rsshub.app" });
+    rssHubInput.setAttr("aria-label", "RSSHub \u5730\u5740");
+    const selected = /* @__PURE__ */ new Set();
+    const list = this.contentEl.createDiv({ cls: "qj-rss-curated-list" });
+    CURATED_RSS_SOURCES.forEach((source) => {
+      const subscribed = source.url !== void 0 && this.plugin.data.rssFeeds.some((feed) => feed.url === source.url);
+      const row = list.createEl("label", { cls: "qj-rss-curated-row" });
+      const checkbox = row.createEl("input", { type: "checkbox" });
+      checkbox.disabled = subscribed;
+      checkbox.checked = subscribed;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(source.id);
+        else selected.delete(source.id);
+      });
+      const text = row.createDiv({ cls: "qj-rss-curated-text" });
+      const heading = text.createDiv({ cls: "qj-rss-curated-title" });
+      heading.createSpan({ text: source.title });
+      heading.createSpan({ text: rssCategoryLabel(source.category), cls: "qj-rss-curated-category" });
+      text.createDiv({ text: subscribed ? `${source.description} \xB7 \u5DF2\u8BA2\u9605` : source.description, cls: "qj-muted" });
+    });
+    const actions = this.contentEl.createDiv({ cls: "qj-inline-actions qj-rss-curated-actions" });
+    const add = actions.createEl("button", { text: "\u6DFB\u52A0\u6240\u9009", cls: "qj-primary" });
+    add.addEventListener("click", async () => {
+      if (!selected.size) {
+        new import_obsidian.Notice("\u8BF7\u5148\u52FE\u9009\u5185\u5BB9\u6E90");
+        return;
+      }
+      add.disabled = true;
+      add.setText("\u6DFB\u52A0\u4E2D\u2026");
+      await this.plugin.addCuratedRssSources([...selected], rssHubInput.value.trim());
+      this.close();
+    });
+  }
+};
 var QingjianHomeView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -327,6 +402,8 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     const manageCategories = toolbar.createEl("button", { text: "\u7BA1\u7406\u5206\u7C7B" });
     manageCategories.disabled = !this.plugin.data.rssFeeds.length;
     manageCategories.addEventListener("click", () => this.plugin.openRssCategoryManager());
+    const curatedSources = toolbar.createEl("button", { text: "\u5185\u7F6E\u6E90\u5E93" });
+    curatedSources.addEventListener("click", () => this.plugin.openCuratedRssLibrary());
     const refresh = toolbar.createEl("button", { text: "\u5237\u65B0\u5168\u90E8" });
     refresh.disabled = !this.plugin.data.rssFeeds.length;
     refresh.addEventListener("click", async () => {
@@ -769,7 +846,7 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       })),
       rssArticles: [],
       dismissedRssLinks: (_f = saved == null ? void 0 : saved.dismissedRssLinks) != null ? _f : [],
-      selectedRssCategories: (saved == null ? void 0 : saved.selectedRssCategories) === void 0 ? [...DEFAULT_DATA.selectedRssCategories] : [...new Set(saved.selectedRssCategories.filter(isRssCategory))],
+      selectedRssCategories: this.normalizeSelectedRssCategories(saved == null ? void 0 : saved.selectedRssCategories),
       settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
@@ -916,6 +993,59 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     } catch (error) {
       console.error("DECK \u8BFB\u53D6 RSS \u5931\u8D25", error);
       new import_obsidian.Notice("\u65E0\u6CD5\u8BFB\u53D6\u8BE5\u8BA2\u9605\u6E90\uFF0C\u8BF7\u68C0\u67E5\u5730\u5740");
+    }
+  }
+  normalizeSelectedRssCategories(saved) {
+    if (!Array.isArray(saved)) return [...DEFAULT_DATA.selectedRssCategories];
+    const categories = [...new Set(saved.filter(isRssCategory))];
+    const usedAllLegacyCategories = categories.length === LEGACY_RSS_CATEGORIES.length && LEGACY_RSS_CATEGORIES.every((category) => categories.includes(category));
+    return usedAllLegacyCategories ? [...DEFAULT_DATA.selectedRssCategories] : categories;
+  }
+  openCuratedRssLibrary() {
+    new CuratedRssModal(this.app, this).open();
+  }
+  async addCuratedRssSources(sourceIds, rssHubBase) {
+    const sources = CURATED_RSS_SOURCES.filter((source) => sourceIds.includes(source.id));
+    let added = 0;
+    const failed = [];
+    for (const source of sources) {
+      let rawUrl = source.url;
+      if (source.rssHubPath) {
+        try {
+          const base = new URL(rssHubBase);
+          if (base.protocol !== "http:" && base.protocol !== "https:") throw new Error("unsupported protocol");
+          rawUrl = `${base.toString().replace(/\/$/, "")}${source.rssHubPath}`;
+        } catch (e) {
+          failed.push(source.title);
+          continue;
+        }
+      }
+      if (!rawUrl || this.data.rssFeeds.some((feed) => feed.url === rawUrl)) continue;
+      try {
+        const parsed = await this.fetchRssFeed(rawUrl);
+        const feed = {
+          id: uid(),
+          title: parsed.title || source.title,
+          url: rawUrl,
+          category: source.category,
+          lastUpdatedAt: Date.now()
+        };
+        this.data.rssFeeds.unshift(feed);
+        this.mergeRssArticles(feed, parsed.articles);
+        added += 1;
+      } catch (error) {
+        console.error(`DECK \u8BFB\u53D6\u5185\u7F6E RSS \u5931\u8D25\uFF1A${source.title}`, error);
+        failed.push(source.title);
+      }
+    }
+    if (added) {
+      await this.writeRssFeedsFile();
+      await this.persist();
+    }
+    if (failed.length) {
+      new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${added} \u4E2A\uFF1B\u4EE5\u4E0B\u6E90\u4E0D\u53EF\u7528\uFF1A${failed.join("\u3001")}\u3002X \u70ED\u95E8\u8BF7\u66F4\u6362\u652F\u6301 X \u63A5\u53E3\u7684 RSSHub\u3002`, 8e3);
+    } else {
+      new import_obsidian.Notice(`\u5DF2\u6DFB\u52A0 ${added} \u4E2A\u5185\u7F6E\u8BA2\u9605\u6E90`);
     }
   }
   async removeRssFeed(feedId) {

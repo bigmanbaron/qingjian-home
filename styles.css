@@ -61,7 +61,7 @@
 .qj-rss-summary { display: -webkit-box; margin-top: 7px; overflow: hidden; color: var(--text-muted); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .qj-rss-actions { justify-content: flex-start; }
 .qj-rss-home-remove { margin-left: auto; border: 0; background: transparent; box-shadow: none; color: var(--text-muted); font-size: 1.1rem; }
-.qj-rss-reader-modal, .qj-rss-feed-modal, .qj-rss-category-modal { width: min(820px, calc(100vw - 32px)); max-width: 820px; }
+.qj-rss-reader-modal, .qj-rss-feed-modal, .qj-rss-category-modal, .qj-rss-curated-modal { width: min(820px, calc(100vw - 32px)); max-width: 820px; }
 .qj-rss-reader-modal .modal-content { overflow-x: hidden; }
 .qj-rss-reader-meta { margin: -8px 0 10px; }
 .qj-rss-reader-actions { justify-content: flex-start; margin-bottom: 14px; }
@@ -85,6 +85,17 @@ body.is-mobile .app-container :is(button, input, textarea, select, .clickable-ic
 .qj-rss-category-list { display: grid; gap: 8px; margin-top: 14px; }
 .qj-rss-category-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(100px, auto); align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .qj-rss-category-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qj-rsshub-row { display: grid; gap: 6px; margin: 14px 0; }
+.qj-rsshub-label { font-size: .85rem; font-weight: 650; }
+.qj-rsshub-row input { width: 100%; }
+.qj-rss-curated-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+.qj-rss-curated-row { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.qj-rss-curated-row input { margin-top: 3px; }
+.qj-rss-curated-text { min-width: 0; }
+.qj-rss-curated-title { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 8px; font-weight: 650; }
+.qj-rss-curated-title > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.qj-rss-curated-category { flex: 0 0 auto; color: var(--text-accent); font-size: .72rem; }
+.qj-rss-curated-actions { margin-top: 16px; }
 
 .qj-column { display: grid; gap: 18px; min-width: 0; }
 .qj-card {
@@ -168,7 +179,7 @@ body.is-mobile .app-container :is(button, input, textarea, select, .clickable-ic
   .qj-entry-row.qj-reminder-form { flex-wrap: wrap; }
   .qj-entry-row.qj-reminder-form input { width: auto; flex: 1 1 100%; }
   .qj-rss-list { grid-template-columns: 1fr; }
-  .qj-rss-reader-modal, .qj-rss-feed-modal, .qj-rss-category-modal {
+  .qj-rss-reader-modal, .qj-rss-feed-modal, .qj-rss-category-modal, .qj-rss-curated-modal {
     width: calc(100vw - 16px);
     max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 52px);
     margin-top: calc(env(safe-area-inset-top, 0px) + 22px);
@@ -186,4 +197,5 @@ body.is-mobile .app-container :is(button, input, textarea, select, .clickable-ic
   .qj-rss-toolbar { flex-direction: column; }
   .qj-rss-toolbar > button { width: 100%; }
   .qj-rss-feed-article-open { flex-direction: column; gap: 4px; }
+  .qj-rss-curated-list { grid-template-columns: 1fr; }
 }

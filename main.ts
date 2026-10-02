@@ -22,14 +22,49 @@ const VIEW_TYPE = "qingjian-home-view";
 
 type Priority = "urgent" | "later";
 type Repeat = "none" | "daily" | "weekly";
-type RssCategory = "technology" | "news" | "business" | "fashion" | "other";
+type RssCategory = "seo" | "geo" | "technology" | "news" | "business" | "fashion" | "books" | "humanities" | "psychology" | "social" | "other";
 
 const RSS_CATEGORIES: Array<{ id: RssCategory; label: string }> = [
+  { id: "seo", label: "SEO" },
+  { id: "geo", label: "GEO" },
   { id: "technology", label: "科技" },
   { id: "news", label: "新闻" },
   { id: "business", label: "商业" },
   { id: "fashion", label: "时尚" },
+  { id: "books", label: "新书书评" },
+  { id: "humanities", label: "人文" },
+  { id: "psychology", label: "心理" },
+  { id: "social", label: "X 热门" },
   { id: "other", label: "其他" }
+];
+
+const LEGACY_RSS_CATEGORIES: RssCategory[] = ["technology", "news", "business", "fashion", "other"];
+
+interface CuratedRssSource {
+  id: string;
+  title: string;
+  category: RssCategory;
+  description: string;
+  url?: string;
+  rssHubPath?: string;
+}
+
+const CURATED_RSS_SOURCES: CuratedRssSource[] = [
+  { id: "google-search-central", title: "Google Search Central", category: "seo", description: "Google 官方搜索与 SEO 更新", url: "https://developers.google.com/search/blog/feed.xml" },
+  { id: "search-engine-journal", title: "Search Engine Journal", category: "seo", description: "SEO、搜索营销与行业动态", url: "https://www.searchenginejournal.com/feed/" },
+  { id: "geo-news", title: "GEO / AI Search", category: "geo", description: "生成式引擎优化与 AI 搜索资讯", url: "https://news.google.com/rss/search?q=%22generative%20engine%20optimization%22%20OR%20%22AI%20search%20optimization%22&hl=en-US&gl=US&ceid=US:en" },
+  { id: "ars-technica", title: "Ars Technica", category: "technology", description: "科技、科学与数码趋势", url: "https://feeds.arstechnica.com/arstechnica/index" },
+  { id: "techcrunch", title: "TechCrunch", category: "technology", description: "科技公司与创业动态", url: "https://techcrunch.com/feed/" },
+  { id: "the-verge", title: "The Verge", category: "technology", description: "消费科技与互联网文化", url: "https://www.theverge.com/rss/index.xml" },
+  { id: "bbc-world", title: "BBC World", category: "news", description: "全球新闻", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { id: "npr-world", title: "NPR World", category: "news", description: "国际新闻与深度报道", url: "https://feeds.npr.org/1004/rss.xml" },
+  { id: "bbc-business", title: "BBC Business", category: "business", description: "商业与经济新闻", url: "https://feeds.bbci.co.uk/news/business/rss.xml" },
+  { id: "guardian-fashion", title: "The Guardian Fashion", category: "fashion", description: "时尚产业与趋势", url: "https://www.theguardian.com/fashion/rss" },
+  { id: "fashionista", title: "Fashionista", category: "fashion", description: "时尚商业与品牌动态", url: "https://fashionista.com/.rss/full/" },
+  { id: "literary-hub", title: "Literary Hub", category: "books", description: "新书、书评与文学动态", url: "https://lithub.com/feed/" },
+  { id: "aeon", title: "Aeon", category: "humanities", description: "哲学、文化、社会与思想长文", url: "https://aeon.co/feed.rss" },
+  { id: "psychology-today", title: "Psychology Today", category: "psychology", description: "心理学知识与生活实践", url: "https://www.psychologytoday.com/us/front/feed" },
+  { id: "x-trends", title: "X 热门趋势", category: "social", description: "需要支持 X 接口的第三方 RSSHub 实例", rssHubPath: "/twitter/trends/1" }
 ];
 
 interface HomeTask {
@@ -154,6 +189,12 @@ function isRssCategory(value: unknown): value is RssCategory {
 
 function inferRssCategory(title: string, url: string): RssCategory {
   const value = `${title} ${url}`.toLowerCase();
+  if (/generative.engine.optimization|\bgeo\b|ai.search.optimization/.test(value)) return "geo";
+  if (/search.engine|search.central|\bseo\b|webmaster/.test(value)) return "seo";
+  if (/twitter|x\.com|social.media|trends/.test(value)) return "social";
+  if (/psychology|mental.health|behavior|cognitive/.test(value)) return "psychology";
+  if (/literary|book.review|\bbooks?\b|publishing/.test(value)) return "books";
+  if (/humanit|philosophy|culture|history|society|aeon/.test(value)) return "humanities";
   if (/fashion|style|vogue|textile|apparel|clothing|garment/.test(value)) return "fashion";
   if (/technology|\btech\b|science|artificial.intelligence|\bai\b|computer|software|gadget|wired|theverge/.test(value)) return "technology";
   if (/business|finance|financial|market|econom|money|invest|stock|commerce/.test(value)) return "business";
@@ -342,6 +383,58 @@ class RssCategoryModal extends Modal {
   }
 }
 
+class CuratedRssModal extends Modal {
+  private plugin: QingjianHomePlugin;
+
+  constructor(app: App, plugin: QingjianHomePlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("qj-rss-curated-modal");
+    this.titleEl.setText("内置 RSS 源库");
+    this.contentEl.createDiv({ text: "勾选需要的内容源。已订阅的源不会重复添加。", cls: "qj-muted" });
+
+    const rssHubRow = this.contentEl.createDiv({ cls: "qj-rsshub-row" });
+    rssHubRow.createDiv({ text: "RSSHub 地址（仅用于 X 热门）", cls: "qj-rsshub-label" });
+    const rssHubInput = rssHubRow.createEl("input", { type: "url", value: "https://rsshub.app" });
+    rssHubInput.setAttr("aria-label", "RSSHub 地址");
+
+    const selected = new Set<string>();
+    const list = this.contentEl.createDiv({ cls: "qj-rss-curated-list" });
+    CURATED_RSS_SOURCES.forEach((source) => {
+      const subscribed = source.url !== undefined && this.plugin.data.rssFeeds.some((feed) => feed.url === source.url);
+      const row = list.createEl("label", { cls: "qj-rss-curated-row" });
+      const checkbox = row.createEl("input", { type: "checkbox" });
+      checkbox.disabled = subscribed;
+      checkbox.checked = subscribed;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(source.id);
+        else selected.delete(source.id);
+      });
+      const text = row.createDiv({ cls: "qj-rss-curated-text" });
+      const heading = text.createDiv({ cls: "qj-rss-curated-title" });
+      heading.createSpan({ text: source.title });
+      heading.createSpan({ text: rssCategoryLabel(source.category), cls: "qj-rss-curated-category" });
+      text.createDiv({ text: subscribed ? `${source.description} · 已订阅` : source.description, cls: "qj-muted" });
+    });
+
+    const actions = this.contentEl.createDiv({ cls: "qj-inline-actions qj-rss-curated-actions" });
+    const add = actions.createEl("button", { text: "添加所选", cls: "qj-primary" });
+    add.addEventListener("click", async () => {
+      if (!selected.size) {
+        new Notice("请先勾选内容源");
+        return;
+      }
+      add.disabled = true;
+      add.setText("添加中…");
+      await this.plugin.addCuratedRssSources([...selected], rssHubInput.value.trim());
+      this.close();
+    });
+  }
+}
+
 class QingjianHomeView extends ItemView {
   plugin: QingjianHomePlugin;
   private taskFilter: "all" | Priority = "all";
@@ -467,6 +560,8 @@ class QingjianHomeView extends ItemView {
     const manageCategories = toolbar.createEl("button", { text: "管理分类" });
     manageCategories.disabled = !this.plugin.data.rssFeeds.length;
     manageCategories.addEventListener("click", () => this.plugin.openRssCategoryManager());
+    const curatedSources = toolbar.createEl("button", { text: "内置源库" });
+    curatedSources.addEventListener("click", () => this.plugin.openCuratedRssLibrary());
     const refresh = toolbar.createEl("button", { text: "刷新全部" });
     refresh.disabled = !this.plugin.data.rssFeeds.length;
     refresh.addEventListener("click", async () => {
@@ -986,9 +1081,7 @@ export default class QingjianHomePlugin extends Plugin {
       })),
       rssArticles: [],
       dismissedRssLinks: saved?.dismissedRssLinks ?? [],
-      selectedRssCategories: saved?.selectedRssCategories === undefined
-        ? [...DEFAULT_DATA.selectedRssCategories]
-        : [...new Set(saved.selectedRssCategories.filter(isRssCategory))],
+      selectedRssCategories: this.normalizeSelectedRssCategories(saved?.selectedRssCategories),
       settings: { ...DEFAULT_DATA.settings, ...(saved?.settings ?? {}) }
     };
 
@@ -1149,6 +1242,63 @@ export default class QingjianHomePlugin extends Plugin {
     } catch (error) {
       console.error("DECK 读取 RSS 失败", error);
       new Notice("无法读取该订阅源，请检查地址");
+    }
+  }
+
+  private normalizeSelectedRssCategories(saved: unknown): RssCategory[] {
+    if (!Array.isArray(saved)) return [...DEFAULT_DATA.selectedRssCategories];
+    const categories = [...new Set(saved.filter(isRssCategory))];
+    const usedAllLegacyCategories = categories.length === LEGACY_RSS_CATEGORIES.length
+      && LEGACY_RSS_CATEGORIES.every((category) => categories.includes(category));
+    return usedAllLegacyCategories ? [...DEFAULT_DATA.selectedRssCategories] : categories;
+  }
+
+  openCuratedRssLibrary(): void {
+    new CuratedRssModal(this.app, this).open();
+  }
+
+  async addCuratedRssSources(sourceIds: string[], rssHubBase: string): Promise<void> {
+    const sources = CURATED_RSS_SOURCES.filter((source) => sourceIds.includes(source.id));
+    let added = 0;
+    const failed: string[] = [];
+    for (const source of sources) {
+      let rawUrl = source.url;
+      if (source.rssHubPath) {
+        try {
+          const base = new URL(rssHubBase);
+          if (base.protocol !== "http:" && base.protocol !== "https:") throw new Error("unsupported protocol");
+          rawUrl = `${base.toString().replace(/\/$/, "")}${source.rssHubPath}`;
+        } catch {
+          failed.push(source.title);
+          continue;
+        }
+      }
+      if (!rawUrl || this.data.rssFeeds.some((feed) => feed.url === rawUrl)) continue;
+      try {
+        const parsed = await this.fetchRssFeed(rawUrl);
+        const feed: RssFeed = {
+          id: uid(),
+          title: parsed.title || source.title,
+          url: rawUrl,
+          category: source.category,
+          lastUpdatedAt: Date.now()
+        };
+        this.data.rssFeeds.unshift(feed);
+        this.mergeRssArticles(feed, parsed.articles);
+        added += 1;
+      } catch (error) {
+        console.error(`DECK 读取内置 RSS 失败：${source.title}`, error);
+        failed.push(source.title);
+      }
+    }
+    if (added) {
+      await this.writeRssFeedsFile();
+      await this.persist();
+    }
+    if (failed.length) {
+      new Notice(`已添加 ${added} 个；以下源不可用：${failed.join("、")}。X 热门请更换支持 X 接口的 RSSHub。`, 8000);
+    } else {
+      new Notice(`已添加 ${added} 个内置订阅源`);
     }
   }
 
