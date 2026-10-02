@@ -22,6 +22,15 @@ const VIEW_TYPE = "qingjian-home-view";
 
 type Priority = "urgent" | "later";
 type Repeat = "none" | "daily" | "weekly";
+type RssCategory = "technology" | "news" | "business" | "fashion" | "other";
+
+const RSS_CATEGORIES: Array<{ id: RssCategory; label: string }> = [
+  { id: "technology", label: "科技" },
+  { id: "news", label: "新闻" },
+  { id: "business", label: "商业" },
+  { id: "fashion", label: "时尚" },
+  { id: "other", label: "其他" }
+];
 
 interface HomeTask {
   id: string;
@@ -69,6 +78,7 @@ interface RssFeed {
   id: string;
   title: string;
   url: string;
+  category: RssCategory;
   lastUpdatedAt?: number;
 }
 
@@ -104,6 +114,7 @@ interface HomeData {
   rssFeeds: RssFeed[];
   rssArticles: RssArticle[];
   dismissedRssLinks: string[];
+  selectedRssCategories: RssCategory[];
   settings: HomeSettings;
 }
 
@@ -120,6 +131,7 @@ const DEFAULT_DATA: HomeData = {
   rssFeeds: [],
   rssArticles: [],
   dismissedRssLinks: [],
+  selectedRssCategories: RSS_CATEGORIES.map(({ id }) => id),
   settings: {
     openOnStartup: true,
     defaultArchivePath: "每日瞬间.md",
@@ -134,6 +146,23 @@ const DEFAULT_DATA: HomeData = {
 
 function uid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isRssCategory(value: unknown): value is RssCategory {
+  return RSS_CATEGORIES.some(({ id }) => id === value);
+}
+
+function inferRssCategory(title: string, url: string): RssCategory {
+  const value = `${title} ${url}`.toLowerCase();
+  if (/fashion|style|vogue|textile|apparel|clothing|garment/.test(value)) return "fashion";
+  if (/technology|\btech\b|science|artificial.intelligence|\bai\b|computer|software|gadget|wired|theverge/.test(value)) return "technology";
+  if (/business|finance|financial|market|econom|money|invest|stock|commerce/.test(value)) return "business";
+  if (/news|world|politic|current|guardian|nytimes|\bnyt\b|\bnpr\b|bbc|reuters/.test(value)) return "news";
+  return "other";
+}
+
+function rssCategoryLabel(category: RssCategory): string {
+  return RSS_CATEGORIES.find(({ id }) => id === category)?.label ?? "其他";
 }
 
 function dateKey(date: Date): string {
@@ -283,13 +312,41 @@ class RssFeedModal extends Modal {
   }
 }
 
+class RssCategoryModal extends Modal {
+  private plugin: QingjianHomePlugin;
+
+  constructor(app: App, plugin: QingjianHomePlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("qj-rss-category-modal");
+    this.titleEl.setText("订阅源分类");
+    this.contentEl.createDiv({ text: "为每个订阅源选择分类，首页会按已勾选分类均衡展示最新文章。", cls: "qj-muted" });
+    const list = this.contentEl.createDiv({ cls: "qj-rss-category-list" });
+    if (!this.plugin.data.rssFeeds.length) {
+      list.createDiv({ text: "尚未添加订阅源", cls: "qj-empty" });
+      return;
+    }
+    this.plugin.data.rssFeeds.forEach((feed) => {
+      const row = list.createDiv({ cls: "qj-rss-category-row" });
+      row.createDiv({ text: feed.title, cls: "qj-rss-category-title" });
+      const select = row.createEl("select");
+      RSS_CATEGORIES.forEach(({ id, label }) => select.createEl("option", { text: label, value: id }));
+      select.value = feed.category;
+      select.addEventListener("change", () => {
+        if (isRssCategory(select.value)) void this.plugin.updateRssFeedCategory(feed.id, select.value);
+      });
+    });
+  }
+}
+
 class QingjianHomeView extends ItemView {
   plugin: QingjianHomePlugin;
   private taskFilter: "all" | Priority = "all";
   private showCompletedTasks = false;
   private drafts = new Map<string, string>();
-  private rssSelectionSignature = "";
-  private rssSelectionIds: string[] = [];
 
   constructor(leaf: WorkspaceLeaf, plugin: QingjianHomePlugin) {
     super(leaf);
@@ -365,7 +422,7 @@ class QingjianHomeView extends ItemView {
 
   private renderRss(parent: HTMLElement): void {
     const unreadCount = this.plugin.data.rssArticles.filter((article) => !article.read).length;
-    const card = this.card(parent, "RSS 阅读", `${unreadCount} 篇未读`);
+    const card = this.card(parent, "最新新闻集合", `${unreadCount} 篇未读 · 首页显示8条`);
     card.addClass("qj-rss-card");
 
     const addRow = card.createDiv({ cls: "qj-entry-row qj-rss-add" });
@@ -386,18 +443,30 @@ class QingjianHomeView extends ItemView {
       }
     });
 
+    const categoryFilters = card.createDiv({ cls: "qj-filters qj-rss-category-filters" });
+    const selectedCategories = new Set(this.plugin.data.selectedRssCategories);
+    RSS_CATEGORIES.forEach(({ id, label }) => {
+      const button = categoryFilters.createEl("button", { text: label });
+      button.toggleClass("is-active", selectedCategories.has(id));
+      button.setAttr("aria-pressed", selectedCategories.has(id) ? "true" : "false");
+      button.addEventListener("click", () => void this.plugin.toggleRssCategory(id));
+    });
+
     const toolbar = card.createDiv({ cls: "qj-rss-toolbar" });
     const feeds = toolbar.createDiv({ cls: "qj-rss-feeds" });
     if (!this.plugin.data.rssFeeds.length) feeds.createSpan({ text: "尚未添加订阅源", cls: "qj-muted" });
     this.plugin.data.rssFeeds.forEach((feed) => {
       const chip = feeds.createDiv({ cls: "qj-rss-feed-chip" });
       const open = chip.createEl("button", { text: feed.title, cls: "qj-rss-feed-open" });
-      open.setAttr("title", `查看 ${feed.title} 的全部文章`);
+      open.setAttr("title", `查看 ${feed.title} 的全部文章 · 分类：${rssCategoryLabel(feed.category)}`);
       open.addEventListener("click", () => this.plugin.openRssFeed(feed));
       const remove = chip.createEl("button", { text: "×", cls: "qj-rss-feed-remove" });
       remove.setAttr("aria-label", `删除订阅 ${feed.title}`);
       remove.addEventListener("click", () => void this.plugin.removeRssFeed(feed.id));
     });
+    const manageCategories = toolbar.createEl("button", { text: "管理分类" });
+    manageCategories.disabled = !this.plugin.data.rssFeeds.length;
+    manageCategories.addEventListener("click", () => this.plugin.openRssCategoryManager());
     const refresh = toolbar.createEl("button", { text: "刷新全部" });
     refresh.disabled = !this.plugin.data.rssFeeds.length;
     refresh.addEventListener("click", async () => {
@@ -408,7 +477,9 @@ class QingjianHomeView extends ItemView {
 
     const list = card.createDiv({ cls: "qj-rss-list" });
     const articles = this.selectRssHomeArticles();
-    if (!articles.length) this.emptyState(list, "订阅后，最新文章会显示在这里");
+    if (!articles.length) {
+      this.emptyState(list, selectedCategories.size ? "订阅后，最新文章会显示在这里" : "请至少勾选一个新闻分类");
+    }
     articles.forEach((article) => {
       const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
       const body = row.createDiv({ cls: "qj-rss-body" });
@@ -437,43 +508,26 @@ class QingjianHomeView extends ItemView {
   }
 
   private selectRssHomeArticles(): RssArticle[] {
-    const groups = this.plugin.data.rssFeeds.map((feed) => ({
-      feed,
-      articles: this.plugin.data.rssArticles
-        .filter((article) => article.feedId === feed.id)
-        .sort((a, b) => b.publishedAt - a.publishedAt)
-    })).filter((group) => group.articles.length);
-    const signature = groups.map((group) => `${group.feed.id}:${group.articles[0]?.id ?? ""}`).join("|");
-    if (signature === this.rssSelectionSignature) {
-      const cached = this.rssSelectionIds
-        .map((id) => this.plugin.data.rssArticles.find((article) => article.id === id))
-        .filter((article): article is RssArticle => Boolean(article));
-      if (cached.length === 4) return cached;
+    const selectedCategories = this.plugin.data.selectedRssCategories;
+    const feedsById = new Map(this.plugin.data.rssFeeds.map((feed) => [feed.id, feed]));
+    const buckets = selectedCategories.map((category) => this.plugin.data.rssArticles
+      .filter((article) => feedsById.get(article.feedId)?.category === category)
+      .sort((left, right) => right.publishedAt - left.publishedAt));
+    const selected: RssArticle[] = [];
+    let index = 0;
+    while (selected.length < 8) {
+      let added = false;
+      for (const bucket of buckets) {
+        const article = bucket[index];
+        if (!article) continue;
+        selected.push(article);
+        added = true;
+        if (selected.length === 8) break;
+      }
+      if (!added) break;
+      index += 1;
     }
-
-    let selected: RssArticle[] = [];
-    if (groups.length === 1) {
-      selected = groups[0].articles.slice(0, 4);
-    } else if (groups.length === 2) {
-      selected = groups.flatMap((group) => group.articles.slice(0, 2));
-    } else if (groups.length === 3) {
-      selected = groups.map((group) => group.articles[0]);
-      const remaining = groups.flatMap((group) => group.articles.slice(1));
-      if (remaining.length) selected.push(remaining[Math.floor(Math.random() * remaining.length)]);
-    } else if (groups.length > 3) {
-      const shuffled = [...groups].sort(() => Math.random() - 0.5);
-      selected = shuffled.slice(0, 4).map((group) => group.articles[0]);
-    }
-
-    if (selected.length < 4) {
-      const remaining = groups.flatMap((group) => group.articles)
-        .filter((article) => !selected.some((entry) => entry.id === article.id))
-        .sort((a, b) => b.publishedAt - a.publishedAt);
-      selected.push(...remaining.slice(0, 4 - selected.length));
-    }
-    this.rssSelectionSignature = signature;
-    this.rssSelectionIds = selected.slice(0, 4).map((article) => article.id);
-    return selected.slice(0, 4);
+    return selected;
   }
 
   private bindDraft(
@@ -926,9 +980,15 @@ export default class QingjianHomePlugin extends Plugin {
       tasks: saved?.tasks ?? [],
       moments: saved?.moments ?? [],
       reminders: saved?.reminders ?? [],
-      rssFeeds: saved?.rssFeeds ?? [],
+      rssFeeds: (saved?.rssFeeds ?? []).map((feed) => ({
+        ...feed,
+        category: isRssCategory(feed.category) ? feed.category : inferRssCategory(feed.title, feed.url)
+      })),
       rssArticles: [],
       dismissedRssLinks: saved?.dismissedRssLinks ?? [],
+      selectedRssCategories: saved?.selectedRssCategories === undefined
+        ? [...DEFAULT_DATA.selectedRssCategories]
+        : [...new Set(saved.selectedRssCategories.filter(isRssCategory))],
       settings: { ...DEFAULT_DATA.settings, ...(saved?.settings ?? {}) }
     };
 
@@ -1073,7 +1133,14 @@ export default class QingjianHomePlugin extends Plugin {
     }
     try {
       const parsed = await this.fetchRssFeed(url.toString());
-      const feed: RssFeed = { id: uid(), title: parsed.title || url.hostname, url: url.toString(), lastUpdatedAt: Date.now() };
+      const title = parsed.title || url.hostname;
+      const feed: RssFeed = {
+        id: uid(),
+        title,
+        url: url.toString(),
+        category: inferRssCategory(title, url.toString()),
+        lastUpdatedAt: Date.now()
+      };
       this.data.rssFeeds.unshift(feed);
       this.mergeRssArticles(feed, parsed.articles);
       await this.writeRssFeedsFile();
@@ -1088,6 +1155,28 @@ export default class QingjianHomePlugin extends Plugin {
   async removeRssFeed(feedId: string): Promise<void> {
     this.data.rssFeeds = this.data.rssFeeds.filter((feed) => feed.id !== feedId);
     this.data.rssArticles = this.data.rssArticles.filter((article) => article.feedId !== feedId);
+    await this.writeRssFeedsFile();
+    await this.persist();
+  }
+
+  async toggleRssCategory(category: RssCategory): Promise<void> {
+    const selected = new Set(this.data.selectedRssCategories);
+    if (selected.has(category)) selected.delete(category);
+    else selected.add(category);
+    this.data.selectedRssCategories = RSS_CATEGORIES
+      .map(({ id }) => id)
+      .filter((id) => selected.has(id));
+    await this.persist();
+  }
+
+  openRssCategoryManager(): void {
+    new RssCategoryModal(this.app, this).open();
+  }
+
+  async updateRssFeedCategory(feedId: string, category: RssCategory): Promise<void> {
+    const feed = this.data.rssFeeds.find((entry) => entry.id === feedId);
+    if (!feed || feed.category === category) return;
+    feed.category = category;
     await this.writeRssFeedsFile();
     await this.persist();
   }
@@ -1194,7 +1283,12 @@ export default class QingjianHomePlugin extends Plugin {
       "",
       ...this.data.rssFeeds.map((feed) => {
         const label = feed.title.replace(/[\[\]]/g, "").trim() || feed.url;
-        const metadata = encodeURIComponent(JSON.stringify({ id: feed.id, title: feed.title, url: feed.url }));
+        const metadata = encodeURIComponent(JSON.stringify({
+          id: feed.id,
+          title: feed.title,
+          url: feed.url,
+          category: feed.category
+        }));
         return `- [${label}](${feed.url}) <!-- qj-rss-feed:${metadata} -->`;
       }),
       ""
@@ -1225,12 +1319,17 @@ export default class QingjianHomePlugin extends Plugin {
         if (!value.id || !value.url || !value.title) continue;
         const url = new URL(value.url);
         if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-        parsed.push({ id: value.id, title: value.title, url: url.toString() });
+        parsed.push({
+          id: value.id,
+          title: value.title,
+          url: url.toString(),
+          category: isRssCategory(value.category) ? value.category : inferRssCategory(value.title, url.toString())
+        });
       } catch {
         // Ignore malformed lines and keep reading the remaining subscriptions.
       }
     }
-    const before = JSON.stringify(this.data.rssFeeds.map(({ id, title, url }) => ({ id, title, url })));
+    const before = JSON.stringify(this.data.rssFeeds.map(({ id, title, url, category }) => ({ id, title, url, category })));
     const after = JSON.stringify(parsed);
     if (before === after) return;
     this.data.rssFeeds = parsed;

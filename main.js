@@ -24,6 +24,13 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var VIEW_TYPE = "qingjian-home-view";
+var RSS_CATEGORIES = [
+  { id: "technology", label: "\u79D1\u6280" },
+  { id: "news", label: "\u65B0\u95FB" },
+  { id: "business", label: "\u5546\u4E1A" },
+  { id: "fashion", label: "\u65F6\u5C1A" },
+  { id: "other", label: "\u5176\u4ED6" }
+];
 var DEFAULT_DATA = {
   schemaVersion: 1,
   tasks: [],
@@ -32,6 +39,7 @@ var DEFAULT_DATA = {
   rssFeeds: [],
   rssArticles: [],
   dismissedRssLinks: [],
+  selectedRssCategories: RSS_CATEGORIES.map(({ id }) => id),
   settings: {
     openOnStartup: true,
     defaultArchivePath: "\u6BCF\u65E5\u77AC\u95F4.md",
@@ -45,6 +53,21 @@ var DEFAULT_DATA = {
 };
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function isRssCategory(value) {
+  return RSS_CATEGORIES.some(({ id }) => id === value);
+}
+function inferRssCategory(title, url) {
+  const value = `${title} ${url}`.toLowerCase();
+  if (/fashion|style|vogue|textile|apparel|clothing|garment/.test(value)) return "fashion";
+  if (/technology|\btech\b|science|artificial.intelligence|\bai\b|computer|software|gadget|wired|theverge/.test(value)) return "technology";
+  if (/business|finance|financial|market|econom|money|invest|stock|commerce/.test(value)) return "business";
+  if (/news|world|politic|current|guardian|nytimes|\bnyt\b|\bnpr\b|bbc|reuters/.test(value)) return "news";
+  return "other";
+}
+function rssCategoryLabel(category) {
+  var _a, _b;
+  return (_b = (_a = RSS_CATEGORIES.find(({ id }) => id === category)) == null ? void 0 : _a.label) != null ? _b : "\u5176\u4ED6";
 }
 function dateKey(date) {
   const year = date.getFullYear();
@@ -168,14 +191,38 @@ var RssFeedModal = class extends import_obsidian.Modal {
     });
   }
 };
+var RssCategoryModal = class extends import_obsidian.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+  onOpen() {
+    this.modalEl.addClass("qj-rss-category-modal");
+    this.titleEl.setText("\u8BA2\u9605\u6E90\u5206\u7C7B");
+    this.contentEl.createDiv({ text: "\u4E3A\u6BCF\u4E2A\u8BA2\u9605\u6E90\u9009\u62E9\u5206\u7C7B\uFF0C\u9996\u9875\u4F1A\u6309\u5DF2\u52FE\u9009\u5206\u7C7B\u5747\u8861\u5C55\u793A\u6700\u65B0\u6587\u7AE0\u3002", cls: "qj-muted" });
+    const list = this.contentEl.createDiv({ cls: "qj-rss-category-list" });
+    if (!this.plugin.data.rssFeeds.length) {
+      list.createDiv({ text: "\u5C1A\u672A\u6DFB\u52A0\u8BA2\u9605\u6E90", cls: "qj-empty" });
+      return;
+    }
+    this.plugin.data.rssFeeds.forEach((feed) => {
+      const row = list.createDiv({ cls: "qj-rss-category-row" });
+      row.createDiv({ text: feed.title, cls: "qj-rss-category-title" });
+      const select = row.createEl("select");
+      RSS_CATEGORIES.forEach(({ id, label }) => select.createEl("option", { text: label, value: id }));
+      select.value = feed.category;
+      select.addEventListener("change", () => {
+        if (isRssCategory(select.value)) void this.plugin.updateRssFeedCategory(feed.id, select.value);
+      });
+    });
+  }
+};
 var QingjianHomeView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.taskFilter = "all";
     this.showCompletedTasks = false;
     this.drafts = /* @__PURE__ */ new Map();
-    this.rssSelectionSignature = "";
-    this.rssSelectionIds = [];
     this.plugin = plugin;
   }
   getViewType() {
@@ -238,7 +285,7 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
   }
   renderRss(parent) {
     const unreadCount = this.plugin.data.rssArticles.filter((article) => !article.read).length;
-    const card = this.card(parent, "RSS \u9605\u8BFB", `${unreadCount} \u7BC7\u672A\u8BFB`);
+    const card = this.card(parent, "\u6700\u65B0\u65B0\u95FB\u96C6\u5408", `${unreadCount} \u7BC7\u672A\u8BFB \xB7 \u9996\u9875\u663E\u793A8\u6761`);
     card.addClass("qj-rss-card");
     const addRow = card.createDiv({ cls: "qj-entry-row qj-rss-add" });
     const feedInput = addRow.createEl("input", { type: "url", placeholder: "\u7C98\u8D34 RSS / Atom \u8BA2\u9605\u5730\u5740\u2026" });
@@ -257,18 +304,29 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
         addButton.setText("\u8BA2\u9605");
       }
     });
+    const categoryFilters = card.createDiv({ cls: "qj-filters qj-rss-category-filters" });
+    const selectedCategories = new Set(this.plugin.data.selectedRssCategories);
+    RSS_CATEGORIES.forEach(({ id, label }) => {
+      const button = categoryFilters.createEl("button", { text: label });
+      button.toggleClass("is-active", selectedCategories.has(id));
+      button.setAttr("aria-pressed", selectedCategories.has(id) ? "true" : "false");
+      button.addEventListener("click", () => void this.plugin.toggleRssCategory(id));
+    });
     const toolbar = card.createDiv({ cls: "qj-rss-toolbar" });
     const feeds = toolbar.createDiv({ cls: "qj-rss-feeds" });
     if (!this.plugin.data.rssFeeds.length) feeds.createSpan({ text: "\u5C1A\u672A\u6DFB\u52A0\u8BA2\u9605\u6E90", cls: "qj-muted" });
     this.plugin.data.rssFeeds.forEach((feed) => {
       const chip = feeds.createDiv({ cls: "qj-rss-feed-chip" });
       const open = chip.createEl("button", { text: feed.title, cls: "qj-rss-feed-open" });
-      open.setAttr("title", `\u67E5\u770B ${feed.title} \u7684\u5168\u90E8\u6587\u7AE0`);
+      open.setAttr("title", `\u67E5\u770B ${feed.title} \u7684\u5168\u90E8\u6587\u7AE0 \xB7 \u5206\u7C7B\uFF1A${rssCategoryLabel(feed.category)}`);
       open.addEventListener("click", () => this.plugin.openRssFeed(feed));
       const remove = chip.createEl("button", { text: "\xD7", cls: "qj-rss-feed-remove" });
       remove.setAttr("aria-label", `\u5220\u9664\u8BA2\u9605 ${feed.title}`);
       remove.addEventListener("click", () => void this.plugin.removeRssFeed(feed.id));
     });
+    const manageCategories = toolbar.createEl("button", { text: "\u7BA1\u7406\u5206\u7C7B" });
+    manageCategories.disabled = !this.plugin.data.rssFeeds.length;
+    manageCategories.addEventListener("click", () => this.plugin.openRssCategoryManager());
     const refresh = toolbar.createEl("button", { text: "\u5237\u65B0\u5168\u90E8" });
     refresh.disabled = !this.plugin.data.rssFeeds.length;
     refresh.addEventListener("click", async () => {
@@ -278,7 +336,9 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     });
     const list = card.createDiv({ cls: "qj-rss-list" });
     const articles = this.selectRssHomeArticles();
-    if (!articles.length) this.emptyState(list, "\u8BA2\u9605\u540E\uFF0C\u6700\u65B0\u6587\u7AE0\u4F1A\u663E\u793A\u5728\u8FD9\u91CC");
+    if (!articles.length) {
+      this.emptyState(list, selectedCategories.size ? "\u8BA2\u9605\u540E\uFF0C\u6700\u65B0\u6587\u7AE0\u4F1A\u663E\u793A\u5728\u8FD9\u91CC" : "\u8BF7\u81F3\u5C11\u52FE\u9009\u4E00\u4E2A\u65B0\u95FB\u5206\u7C7B");
+    }
     articles.forEach((article) => {
       const row = list.createDiv({ cls: `qj-rss-item${article.read ? " is-read" : ""}` });
       const body = row.createDiv({ cls: "qj-rss-body" });
@@ -306,38 +366,27 @@ var QingjianHomeView = class extends import_obsidian.ItemView {
     });
   }
   selectRssHomeArticles() {
-    const groups = this.plugin.data.rssFeeds.map((feed) => ({
-      feed,
-      articles: this.plugin.data.rssArticles.filter((article) => article.feedId === feed.id).sort((a, b) => b.publishedAt - a.publishedAt)
-    })).filter((group) => group.articles.length);
-    const signature = groups.map((group) => {
-      var _a, _b;
-      return `${group.feed.id}:${(_b = (_a = group.articles[0]) == null ? void 0 : _a.id) != null ? _b : ""}`;
-    }).join("|");
-    if (signature === this.rssSelectionSignature) {
-      const cached = this.rssSelectionIds.map((id) => this.plugin.data.rssArticles.find((article) => article.id === id)).filter((article) => Boolean(article));
-      if (cached.length === 4) return cached;
+    const selectedCategories = this.plugin.data.selectedRssCategories;
+    const feedsById = new Map(this.plugin.data.rssFeeds.map((feed) => [feed.id, feed]));
+    const buckets = selectedCategories.map((category) => this.plugin.data.rssArticles.filter((article) => {
+      var _a;
+      return ((_a = feedsById.get(article.feedId)) == null ? void 0 : _a.category) === category;
+    }).sort((left, right) => right.publishedAt - left.publishedAt));
+    const selected = [];
+    let index = 0;
+    while (selected.length < 8) {
+      let added = false;
+      for (const bucket of buckets) {
+        const article = bucket[index];
+        if (!article) continue;
+        selected.push(article);
+        added = true;
+        if (selected.length === 8) break;
+      }
+      if (!added) break;
+      index += 1;
     }
-    let selected = [];
-    if (groups.length === 1) {
-      selected = groups[0].articles.slice(0, 4);
-    } else if (groups.length === 2) {
-      selected = groups.flatMap((group) => group.articles.slice(0, 2));
-    } else if (groups.length === 3) {
-      selected = groups.map((group) => group.articles[0]);
-      const remaining = groups.flatMap((group) => group.articles.slice(1));
-      if (remaining.length) selected.push(remaining[Math.floor(Math.random() * remaining.length)]);
-    } else if (groups.length > 3) {
-      const shuffled = [...groups].sort(() => Math.random() - 0.5);
-      selected = shuffled.slice(0, 4).map((group) => group.articles[0]);
-    }
-    if (selected.length < 4) {
-      const remaining = groups.flatMap((group) => group.articles).filter((article) => !selected.some((entry) => entry.id === article.id)).sort((a, b) => b.publishedAt - a.publishedAt);
-      selected.push(...remaining.slice(0, 4 - selected.length));
-    }
-    this.rssSelectionSignature = signature;
-    this.rssSelectionIds = selected.slice(0, 4).map((article) => article.id);
-    return selected.slice(0, 4);
+    return selected;
   }
   bindDraft(element, key, fallback = "") {
     var _a;
@@ -714,9 +763,13 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
       tasks: (_b = saved == null ? void 0 : saved.tasks) != null ? _b : [],
       moments: (_c = saved == null ? void 0 : saved.moments) != null ? _c : [],
       reminders: (_d = saved == null ? void 0 : saved.reminders) != null ? _d : [],
-      rssFeeds: (_e = saved == null ? void 0 : saved.rssFeeds) != null ? _e : [],
+      rssFeeds: ((_e = saved == null ? void 0 : saved.rssFeeds) != null ? _e : []).map((feed) => ({
+        ...feed,
+        category: isRssCategory(feed.category) ? feed.category : inferRssCategory(feed.title, feed.url)
+      })),
       rssArticles: [],
       dismissedRssLinks: (_f = saved == null ? void 0 : saved.dismissedRssLinks) != null ? _f : [],
+      selectedRssCategories: (saved == null ? void 0 : saved.selectedRssCategories) === void 0 ? [...DEFAULT_DATA.selectedRssCategories] : [...new Set(saved.selectedRssCategories.filter(isRssCategory))],
       settings: { ...DEFAULT_DATA.settings, ...(_g = saved == null ? void 0 : saved.settings) != null ? _g : {} }
     };
     this.registerView(VIEW_TYPE, (leaf) => new QingjianHomeView(leaf, this));
@@ -847,7 +900,14 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
     }
     try {
       const parsed = await this.fetchRssFeed(url.toString());
-      const feed = { id: uid(), title: parsed.title || url.hostname, url: url.toString(), lastUpdatedAt: Date.now() };
+      const title = parsed.title || url.hostname;
+      const feed = {
+        id: uid(),
+        title,
+        url: url.toString(),
+        category: inferRssCategory(title, url.toString()),
+        lastUpdatedAt: Date.now()
+      };
       this.data.rssFeeds.unshift(feed);
       this.mergeRssArticles(feed, parsed.articles);
       await this.writeRssFeedsFile();
@@ -861,6 +921,23 @@ var QingjianHomePlugin = class extends import_obsidian.Plugin {
   async removeRssFeed(feedId) {
     this.data.rssFeeds = this.data.rssFeeds.filter((feed) => feed.id !== feedId);
     this.data.rssArticles = this.data.rssArticles.filter((article) => article.feedId !== feedId);
+    await this.writeRssFeedsFile();
+    await this.persist();
+  }
+  async toggleRssCategory(category) {
+    const selected = new Set(this.data.selectedRssCategories);
+    if (selected.has(category)) selected.delete(category);
+    else selected.add(category);
+    this.data.selectedRssCategories = RSS_CATEGORIES.map(({ id }) => id).filter((id) => selected.has(id));
+    await this.persist();
+  }
+  openRssCategoryManager() {
+    new RssCategoryModal(this.app, this).open();
+  }
+  async updateRssFeedCategory(feedId, category) {
+    const feed = this.data.rssFeeds.find((entry) => entry.id === feedId);
+    if (!feed || feed.category === category) return;
+    feed.category = category;
     await this.writeRssFeedsFile();
     await this.persist();
   }
@@ -963,7 +1040,12 @@ ${content}
       "",
       ...this.data.rssFeeds.map((feed) => {
         const label = feed.title.replace(/[\[\]]/g, "").trim() || feed.url;
-        const metadata = encodeURIComponent(JSON.stringify({ id: feed.id, title: feed.title, url: feed.url }));
+        const metadata = encodeURIComponent(JSON.stringify({
+          id: feed.id,
+          title: feed.title,
+          url: feed.url,
+          category: feed.category
+        }));
         return `- [${label}](${feed.url}) <!-- qj-rss-feed:${metadata} -->`;
       }),
       ""
@@ -993,11 +1075,16 @@ ${content}
         if (!value.id || !value.url || !value.title) continue;
         const url = new URL(value.url);
         if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-        parsed.push({ id: value.id, title: value.title, url: url.toString() });
+        parsed.push({
+          id: value.id,
+          title: value.title,
+          url: url.toString(),
+          category: isRssCategory(value.category) ? value.category : inferRssCategory(value.title, url.toString())
+        });
       } catch (e) {
       }
     }
-    const before = JSON.stringify(this.data.rssFeeds.map(({ id, title, url }) => ({ id, title, url })));
+    const before = JSON.stringify(this.data.rssFeeds.map(({ id, title, url, category }) => ({ id, title, url, category })));
     const after = JSON.stringify(parsed);
     if (before === after) return;
     this.data.rssFeeds = parsed;
